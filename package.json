@@ -1,0 +1,37 @@
+{
+    "name": "ptzcontroller_desktop",
+    "version": "1.0.0",
+    "description": "PTZ Camera Controller Desktop Application",
+    "main": "electron/main.js",
+    "author": "PTZ Controller Team",
+    "license": "MIT",
+    "scripts": {
+        "start": "electron .",
+        "build:next": "cd ../ptzcontroller_admin && yarn build",
+        "copy:standalone": "node scripts/copy-standalone.js",
+        "prebuild": "npm run build:next && npm run copy:standalone",
+        "package": "electron-forge package",
+        "make": "electron-forge make",
+        "make:win": "electron-forge make --platform=win32",
+        "make:mac": "electron-forge make --platform=darwin",
+        "make:linux": "electron-forge make --platform=linux",
+        "dev": "npm run copy:standalone && electron .",
+        "prepare:only": "npm run copy:standalone",
+        "make:win:only": "electron-forge make --platform=win32",
+        "make:portable": "node scripts/make-portable.js",
+        "make:win:portable": "electron-forge make --platform=win32 && node scripts/make-portable.js"
+    },
+    "devDependencies": {
+        "@electron-forge/cli": "^7.2.0",
+        "@electron-forge/maker-deb": "^7.2.0",
+        "@electron-forge/maker-rpm": "^7.2.0",
+        "@electron-forge/maker-squirrel": "^7.2.0",
+        "@electron-forge/maker-zip": "^7.2.0",
+        "@electron-forge/plugin-auto-unpack-natives": "^7.2.0",
+        "electron": "^40.6.1"
+    },
+    "dependencies": {
+        "electron-squirrel-startup": "^1.0.0",
+        "ws": "^8.19.0"
+    }
+}

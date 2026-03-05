@@ -1,0 +1,4 @@
+# This directory stores JSON configuration files
+# - cameras.json: Camera configurations
+# - presets.json: PTZ presets
+# - settings.json: Application settings
