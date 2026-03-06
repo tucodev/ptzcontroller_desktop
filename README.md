@@ -25,6 +25,18 @@ assets/ 폴더 아래에 아래 파일을 배치하세요:
   icon.png   (공통, 256×256 이상)
 ```
 
+## 환경변수 설정 (.env)
+
+> ⚠️ `.env` 파일은 **절대 Git에 커밋하지 마세요**. `.gitignore`에 등록되어 있습니다.
+
+```bash
+# .env.example 을 복사하여 실제 값을 채워 넣으세요
+cp .env.example .env-in-standalone
+# 실제 값 입력 후 copy:standalone 실행 시 자동으로 standalone/.env 로 복사됩니다
+```
+
+또는 `ptzcontroller_admin/.env` 에 값을 설정하면 `copy:standalone` 시 자동 복사됩니다.
+
 ## 개발 모드 실행
 
 ```bash

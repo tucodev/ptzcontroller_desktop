@@ -3,3 +3,16 @@ node-bin/
 standalone/.next/
 standalone/node_modules/
 out/
+
+# ── 민감정보 파일 (P-01 수정) ────────────────────────────────
+# 실제 .env 파일은 절대 커밋하지 않음
+# 템플릿은 .env.example 파일로 관리
+.env
+.env.local
+.env.production
+.env-in-standalone
+standalone/.env
+
+# ── 빌드 산출물 ──────────────────────────────────────────────
+standalone/server.js
+standalone/.env
