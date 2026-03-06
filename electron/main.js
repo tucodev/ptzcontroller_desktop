@@ -51,9 +51,22 @@ function getNodeExecutable() {
     return process.platform === "win32" ? "node.exe" : "node";
 }
 
+// ── OS별 공유 라이선스/데이터 디렉토리 (P-16 수정) ───────────
+// 기존: app.getPath("userData") → 사용자별 경로 (다중 계정 시 분리)
+// 수정: OS 공용 경로 사용 (데스크톱 1인용 앱 의도에 부합)
+function getSharedDataDir() {
+    if (process.platform === "win32") {
+        const pd = process.env.PROGRAMDATA || process.env.ALLUSERSPROFILE || "C:\\ProgramData";
+        return path.join(pd, "PTZController", "data");
+    } else if (process.platform === "darwin") {
+        return path.join("/Library", "Application Support", "PTZController", "data");
+    } else {
+        return path.join(process.env.HOME || "/etc", ".config", "PTZController", "data");
+    }
+}
+
 // ── 설정 ──────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "3000", 10);
-//const DEV_MODE = !app.isPackaged;
 const DEV_MODE = process.env.NODE_ENV === "development";
 
 // ── 전역 상태 ─────────────────────────────────────────────────
@@ -63,15 +76,29 @@ let nextProcess = null;
 let serverReady = false;
 let appQuitting = false;
 
-// ── .env 파싱 ─────────────────────────────────────────────────
+// ── .env 파싱 (P-14 수정: 인라인 주석 제거) ──────────────────
 function parseEnv(filePath) {
     const vars = {};
     if (!fs.existsSync(filePath)) return vars;
     fs.readFileSync(filePath, "utf8")
         .split("\n")
         .forEach((line) => {
-            const m = line.match(/^([^#=\s][^=]*)=(.*)/);
-            if (m) vars[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, "");
+            const trimmed = line.trim();
+            // 빈 줄 및 주석 줄 제외
+            if (!trimmed || trimmed.startsWith("#")) return;
+            const eqIdx = trimmed.indexOf("=");
+            if (eqIdx < 1) return;
+            const key = trimmed.slice(0, eqIdx).trim();
+            let val = trimmed.slice(eqIdx + 1).trim();
+            // 따옴표 제거
+            if ((val.startsWith('"') && val.endsWith('"')) ||
+                (val.startsWith("'") && val.endsWith("'"))) {
+                val = val.slice(1, -1);
+            } else {
+                // P-14 수정: 인라인 주석 제거 (따옴표 없는 값의 # 이후 제거)
+                val = val.replace(/\s+#.*$/, "").trim();
+            }
+            vars[key] = val;
         });
     return vars;
 }
@@ -85,13 +112,16 @@ function findPrismaEngine(standalonePath) {
         "client",
     );
     if (!fs.existsSync(clientDir)) return "";
+    const arch = process.arch;
     const candidates = {
         win32: ["query_engine-windows.dll.node"],
         darwin: [
+            `libquery_engine-darwin-${arch}.dylib.node`,
             "libquery_engine-darwin-arm64.dylib.node",
             "libquery_engine-darwin.dylib.node",
         ],
         linux: [
+            `libquery_engine-linux-musl-${arch}-openssl-3.0.x.so.node`,
             "libquery_engine-linux-musl-arm64-openssl-3.0.x.so.node",
             "libquery_engine-linux-musl-openssl-3.0.x.so.node",
             "libquery_engine-rhel-openssl-3.0.x.so.node",
@@ -104,8 +134,31 @@ function findPrismaEngine(standalonePath) {
     return "";
 }
 
-// ── Next.js 서버 시작 ─────────────────────────────────────────
-function startNextServer() {
+// ── Next.js 프로세스 안전 종료 (P-06 수정) ───────────────────
+// Windows에서 SIGTERM은 자식 프로세스 트리를 종료하지 못함.
+// taskkill /T /F 로 프로세스 트리 전체 강제 종료.
+function killNextProcess() {
+    if (!nextProcess) return;
+    const proc = nextProcess;
+    nextProcess = null; // 먼저 null 로 설정하여 중복 호출 방지
+
+    try {
+        if (process.platform === "win32") {
+            // Windows: taskkill 로 자식 프로세스 트리까지 종료
+            const { execSync } = require("child_process");
+            execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: "ignore" });
+        } else {
+            // macOS / Linux: SIGTERM → graceful shutdown
+            proc.kill("SIGTERM");
+        }
+        console.log("[Desktop] Next.js 서버 프로세스 종료 완료");
+    } catch (e) {
+        console.warn("[Desktop] 프로세스 종료 오류:", e.message);
+    }
+}
+
+// ── Next.js 서버 시작 (P-25 수정: async 전환 및 에러 처리 개선) ──
+async function startNextServer() {
     const standalonePath = getStandalonePath();
     const serverJs = path.join(standalonePath, "server.js");
 
@@ -113,12 +166,13 @@ function startNextServer() {
         showFatalError(
             `server.js 를 찾을 수 없습니다.\n${serverJs}\n\nnpm run copy:standalone 을 먼저 실행하세요.`,
         );
-        return;
+        return false;
     }
 
     const nodeExe = getNodeExecutable();
     const envVars = parseEnv(path.join(standalonePath, ".env"));
     const enginePath = findPrismaEngine(standalonePath);
+    const dataDir = getSharedDataDir();
 
     const serverEnv = {
         ...process.env,
@@ -127,40 +181,67 @@ function startNextServer() {
         HOSTNAME: "localhost",
         NODE_ENV: "production",
         NEXTAUTH_URL: envVars.NEXTAUTH_URL || `http://localhost:${PORT}`,
-        PTZ_DATA_DIR: path.join(app.getPath("userData"), "data"),
+        // P-16 수정: 공유 데이터 경로 사용
+        PTZ_DATA_DIR: dataDir,
+        // P-15 수정: PTZ_FORCE_SHARED 환경변수 전달 (1인용 앱 — userId 무시)
+        PTZ_FORCE_SHARED: "true",
         ...(enginePath ? { PRISMA_QUERY_ENGINE_LIBRARY: enginePath } : {}),
     };
 
     console.log("[Desktop] node      :", nodeExe);
     console.log("[Desktop] server.js :", serverJs);
+    console.log("[Desktop] data dir  :", dataDir);
+    console.log("[Desktop] NEXTAUTH_URL:", serverEnv.NEXTAUTH_URL);
+    console.log("[Desktop] DATABASE_URL:", serverEnv.DATABASE_URL
+        ? serverEnv.DATABASE_URL.replace(/:([^:@]+)@/, ":***@") : "❌ NOT SET");
 
-    nextProcess = cp.spawn(nodeExe, [serverJs], {
-        cwd: standalonePath,
-        env: serverEnv,
-        stdio: ["ignore", "pipe", "pipe"],
-    });
+    // P-25 수정: spawn 에러를 Promise 로 감지
+    return new Promise((resolve) => {
+        nextProcess = cp.spawn(nodeExe, [serverJs], {
+            cwd: standalonePath,
+            env: serverEnv,
+            stdio: ["ignore", "pipe", "pipe"],
+        });
 
-    nextProcess.stdout.on("data", (d) => process.stdout.write("[Next] " + d));
-    nextProcess.stderr.on("data", (d) => process.stderr.write("[Next] " + d));
+        nextProcess.stdout.on("data", (d) => process.stdout.write("[Next] " + d));
+        nextProcess.stderr.on("data", (d) => process.stderr.write("[Next] " + d));
 
-    nextProcess.on("error", (err) => {
-        showFatalError(
-            err.code === "ENOENT"
-                ? `Node.js 실행 파일을 찾을 수 없습니다.\n${nodeExe}`
-                : `서버 실행 오류: ${err.message}`,
-        );
-    });
-
-    nextProcess.on("exit", (code, signal) => {
-        if (!appQuitting && code !== 0)
-            console.error(
-                `[Desktop] server exited: code=${code} signal=${signal}`,
+        // spawn 자체 실패 (ENOENT 등) — 비동기 이벤트로 발생
+        nextProcess.on("error", (err) => {
+            console.error("[Desktop] spawn error:", err.message);
+            nextProcess = null;
+            showFatalError(
+                err.code === "ENOENT"
+                    ? `Node.js 실행 파일을 찾을 수 없습니다.\n${nodeExe}`
+                    : `서버 실행 오류: ${err.message}`,
             );
+            resolve(false);
+        });
+
+        // P-12 수정: 서버 비정상 종료 시 사용자에게 dialog 알림
+        nextProcess.on("exit", (code, signal) => {
+            if (appQuitting) return; // 정상 종료 흐름이면 무시
+            if (code !== 0 && signal !== "SIGTERM") {
+                console.error(`[Desktop] server exited: code=${code} signal=${signal}`);
+                dialog.showErrorBox(
+                    "PTZ Controller — 서버 오류",
+                    `Next.js 서버가 예기치 않게 종료되었습니다.\n` +
+                    `종료 코드: ${code}\n\n` +
+                    `앱을 재시작해 주세요.`,
+                );
+            }
+        });
+
+        // spawn 이 성공적으로 시작됐으면 resolve(true)
+        // (error 이벤트가 없으면 성공으로 간주)
+        process.nextTick(() => {
+            if (nextProcess) resolve(true);
+        });
     });
 }
 
-// ── 서버 준비 대기 (HTTP 폴링) ────────────────────────────────
-function waitForServer(retries = 40, interval = 500) {
+// ── 서버 준비 대기 (HTTP 폴링) (P-11 수정: 타임아웃 60초로 증가) ──
+function waitForServer(retries = 120, interval = 500) {
     return new Promise((resolve, reject) => {
         let tried = 0;
         const check = () => {
@@ -172,7 +253,9 @@ function waitForServer(retries = 40, interval = 500) {
                 if (++tried >= retries)
                     reject(
                         new Error(
-                            `서버가 ${(retries * interval) / 1000}초 내에 응답하지 않습니다.`,
+                            `서버가 ${(retries * interval) / 1000}초 내에 응답하지 않습니다.\n` +
+                            `포트: ${PORT}\n` +
+                            `Next.js 서버 로그를 확인하세요.`,
                         ),
                     );
                 else setTimeout(check, interval);
@@ -283,13 +366,9 @@ function showWindow() {
     mainWindow.focus();
 }
 
-// ── 종료 ──────────────────────────────────────────────────────
+// ── 종료 (P-07 수정: 종료 로직을 before-quit 한 곳으로 통합) ─
 function quitApp() {
     appQuitting = true;
-    if (nextProcess) {
-        nextProcess.kill("SIGTERM");
-        nextProcess = null;
-    }
     app.quit();
 }
 
@@ -356,7 +435,10 @@ ipcMain.on("request-status", () => {
 // ── 앱 시작 ───────────────────────────────────────────────────
 app.whenReady().then(async () => {
     createTray();
-    startNextServer();
+
+    // P-25 수정: startNextServer 를 await 로 호출 (에러 감지 가능)
+    const started = await startNextServer();
+    if (!started) return; // showFatalError 에서 종료 처리됨
 
     try {
         await waitForServer();
@@ -368,14 +450,49 @@ app.whenReady().then(async () => {
     }
 });
 
+// P-10 수정: macOS Dock 클릭 시 창 복원 (activate 핸들러 추가)
+app.on("activate", () => {
+    if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+    } else if (serverReady) {
+        createWindow();
+    }
+});
+
 app.on("second-instance", () => showWindow());
+
+// 트레이 앱이므로 모든 창이 닫혀도 앱 유지
 app.on("window-all-closed", (e) => e.preventDefault());
+
+// P-07 수정: 종료 로직을 before-quit 한 곳으로 통합
+// quitApp() → app.quit() → before-quit → will-quit → 앱 종료
+// 이전: quitApp()에서 kill 후 will-quit 에서도 kill 시도 (중복)
+// 수정: before-quit 에서만 프로세스 종료 처리
 app.on("before-quit", () => {
     appQuitting = true;
+    // P-06 수정: Windows SIGTERM → taskkill 로 교체
+    killNextProcess();
 });
+
+// will-quit 에서는 tray 정리만 수행 (프로세스 종료는 before-quit 에서 완료)
 app.on("will-quit", () => {
-    if (nextProcess) {
-        nextProcess.kill("SIGTERM");
-        nextProcess = null;
+    if (tray) {
+        tray.destroy();
+        tray = null;
     }
+});
+
+// P-13 수정: 처리되지 않은 예외 발생 시 사용자에게 알림
+process.on("uncaughtException", (err) => {
+    console.error("[Desktop] uncaughtException:", err);
+    try {
+        dialog.showErrorBox("PTZ Controller — 오류", `예기치 않은 오류가 발생했습니다.\n\n${err.message}`);
+    } catch {}
+    // 치명적 오류이면 앱 종료
+    quitApp();
+});
+
+process.on("unhandledRejection", (reason) => {
+    console.error("[Desktop] unhandledRejection:", reason);
 });
