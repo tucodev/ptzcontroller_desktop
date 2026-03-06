@@ -483,37 +483,53 @@ LICENSE_SERVER_URL="http://127.0.0.1:4000"
 
 ## 📋 요약 테이블
 
-| ID | 심각도 | 파일 | 문제 요약 |
-|---|---|---|---|
-| P-01 | 🔴 CRITICAL | `.gitignore` | DB 비밀번호 등 민감정보 Git 노출 |
-| P-02 | 🔴 CRITICAL | `index.html` | `require('electron')` 동작 불가 |
-| P-03 | 🔴 CRITICAL | `index.html` / `main.js` | IPC 채널 핸들러 6개 누락 |
-| P-04 | 🔴 CRITICAL | `main.js` | `electron-squirrel-startup` 미처리 |
-| P-05 | 🔴 CRITICAL | `preload.js` / `main.js` | `server-status` 이벤트 미발송 |
-| P-06 | 🟠 HIGH | `main.js` | Windows SIGTERM 프로세스 종료 불가 |
-| P-07 | 🟠 HIGH | `main.js` | 종료 로직 중복 및 타이밍 이슈 |
-| P-08 | 🟠 HIGH | `forge.config.js` | `node-bin` 없으면 빌드 실패 |
-| P-09 | 🟠 HIGH | `standalone/server.js` | Windows 절대경로 하드코딩 |
-| P-10 | 🟠 HIGH | `main.js` | macOS `activate` 핸들러 누락 |
-| P-11 | 🟠 HIGH | `main.js` | 서버 대기 타임아웃 20초 부족 |
-| P-12 | 🟠 HIGH | `main.js` | 서버 비정상 종료 시 사용자 알림 없음 |
-| P-13 | 🟠 HIGH | `main.js` | `uncaughtException` 핸들러 누락 |
-| P-14 | 🟡 MEDIUM | `main.js` | `parseEnv()` 인라인 주석 파싱 버그 |
-| P-15 | 🟡 MEDIUM | `main.js` | `PTZ_FORCE_SHARED` 환경변수 미전달 |
-| P-16 | 🟡 MEDIUM | `main.js` | `PTZ_DATA_DIR` 사용자별 경로 (공유 경로 아님) |
-| P-17 | 🟡 MEDIUM | `copy-standalone.js` | `NEXTAUTH_URL` 포트 하드코딩 |
-| P-18 | 🟡 MEDIUM | `copy-standalone.js` | `data/` 삭제-복사 중 중단 시 데이터 손실 위험 |
-| P-19 | 🟡 MEDIUM | `main.js` / `preload.js` | `closeWindow()` 동작이 hide(숨기기)로 불일치 |
-| P-20 | 🟡 MEDIUM | `main.js` | `HOSTNAME=localhost`로 네트워크 접근 제한 |
-| P-21 | 🟡 MEDIUM | `settings.json` / `main.js` | `proxyPort` 설정값 미참조 |
-| P-22 | 🔵 LOW | `main.js.ok` | 백업 파일이 Git에 추적됨 |
-| P-23 | 🔵 LOW | `index.html` | 버전 하드코딩 및 `package.json`과 불일치 |
-| P-24 | 🔵 LOW | `package.json` | `ws` 패키지 미사용 의존성 |
-| P-25 | 🔵 LOW | `main.js` | `startNextServer()` 에러 처리 구조 불완전 |
-| P-26 | 🔵 LOW | `forge.config.js` | macOS DMG 패키저 없음 |
-| P-27 | 🔵 LOW | `bundle-node.js` | 크로스 컴파일 미지원 |
-| P-28 | 🔵 LOW | `standalone/.env` | `LICENSE_SERVER_URL` localhost — 배포 환경 불가 |
+> **최종 업데이트:** 2026-03-06  
+> ✅ = 수정 완료 | 🔲 = 미수정(설계 결정으로 유지)
+
+| ID | 심각도 | 파일 | 문제 요약 | 상태 | 수정 커밋 |
+|---|---|---|---|---|---|
+| P-01 | 🔴 CRITICAL | `.gitignore` | DB 비밀번호 등 민감정보 Git 노출 | ✅ | 77eaec2 |
+| P-02 | 🔴 CRITICAL | `index.html` | `require('electron')` 동작 불가 | ✅ | b5c0842 |
+| P-03 | 🔴 CRITICAL | `index.html` / `main.js` | IPC 채널 핸들러 6개 누락 | ✅ | b5c0842 |
+| P-04 | 🔴 CRITICAL | `main.js` | `electron-squirrel-startup` 미처리 | ✅ | 1070eb7 |
+| P-05 | 🔴 CRITICAL | `preload.js` / `main.js` | `server-status` 이벤트 미발송 | ✅ | b5c0842 |
+| P-06 | 🟠 HIGH | `main.js` | Windows SIGTERM 프로세스 종료 불가 | ✅ | 9803b95 |
+| P-07 | 🟠 HIGH | `main.js` | 종료 로직 중복 및 타이밍 이슈 | ✅ | 9803b95 |
+| P-08 | 🟠 HIGH | `forge.config.js` | `node-bin` 없으면 빌드 실패 | ✅ | f35cc0c |
+| P-09 | 🟠 HIGH | `standalone/server.js` | Windows 절대경로 하드코딩 | ✅ | f35cc0c |
+| P-10 | 🟠 HIGH | `main.js` | macOS `activate` 핸들러 누락 | ✅ | 9803b95 |
+| P-11 | 🟠 HIGH | `main.js` | 서버 대기 타임아웃 20초 부족 | ✅ | 9803b95 |
+| P-12 | 🟠 HIGH | `main.js` | 서버 비정상 종료 시 사용자 알림 없음 | ✅ | 9803b95 |
+| P-13 | 🟠 HIGH | `main.js` | `uncaughtException` 핸들러 누락 | ✅ | 9803b95 |
+| P-14 | 🟡 MEDIUM | `main.js` | `parseEnv()` 인라인 주석 파싱 버그 | ✅ | 9803b95 |
+| P-15 | 🟡 MEDIUM | `main.js` | `PTZ_FORCE_SHARED` 환경변수 미전달 | ✅ | 9803b95 |
+| P-16 | 🟡 MEDIUM | `main.js` | `PTZ_DATA_DIR` 사용자별 경로 (공유 경로 아님) | ✅ | 9803b95 |
+| P-17 | 🟡 MEDIUM | `copy-standalone.js` | `NEXTAUTH_URL` 포트 하드코딩 | ✅ | f35cc0c |
+| P-18 | 🟡 MEDIUM | `copy-standalone.js` | `data/` 삭제-복사 중 중단 시 데이터 손실 위험 | ✅ | f35cc0c |
+| P-19 | 🟡 MEDIUM | `main.js` / `preload.js` | `closeWindow()` 동작이 hide(숨기기)로 불일치 | ✅ | b5c0842 |
+| P-20 | 🟡 MEDIUM | `main.js` | `HOSTNAME=localhost`로 네트워크 접근 제한 | ✅ | f35cc0c |
+| P-21 | 🟡 MEDIUM | `settings.json` / `main.js` | `proxyPort` 설정값 미참조 | ✅ | f35cc0c |
+| P-22 | 🔵 LOW | `main.js.ok` | 백업 파일이 Git에 추적됨 | ✅ | f35cc0c |
+| P-23 | 🔵 LOW | `index.html` | 버전 하드코딩 및 `package.json`과 불일치 | ✅ | b5c0842 |
+| P-24 | 🔵 LOW | `package.json` | `ws` 패키지 미사용 의존성 | ✅ | f35cc0c |
+| P-25 | 🔵 LOW | `main.js` | `startNextServer()` 에러 처리 구조 불완전 | ✅ | 9803b95 |
+| P-26 | 🔵 LOW | `forge.config.js` | macOS DMG 패키저 없음 | ✅ | f35cc0c |
+| P-27 | 🔵 LOW | `bundle-node.js` | 크로스 컴파일 미지원 | ✅ | f35cc0c |
+| P-28 | 🔵 LOW | `standalone/.env` | `LICENSE_SERVER_URL` localhost — 배포 환경 불가 | ✅ | f35cc0c |
 
 ---
 
-*총 28개 문제점 | CRITICAL 5개 | HIGH 8개 | MEDIUM 8개 | LOW 7개*
+## 🔧 수정 커밋 이력
+
+| 커밋 | 수정 항목 | 설명 |
+|---|---|---|
+| `77eaec2` | P-01 | `.gitignore` 업데이트, `.env` 파일 추적 제거, `.env.example` 생성 |
+| `b5c0842` | P-02, P-03, P-05, P-19, P-23 | `index.html` IPC 구조 전면 수정, `preload.js` 채널 추가 |
+| `1070eb7` | P-04 | `electron-squirrel-startup` 처리 코드 추가 |
+| `9803b95` | P-06, P-07, P-10~16, P-25 | `main.js` 프로세스 생명주기 전면 수정 |
+| `f35cc0c` | P-08, P-09, P-17~22, P-24, P-26~28 | 빌드/설정/스크립트 전면 수정 |
+
+---
+
+*총 28개 문제점 | CRITICAL 5개 | HIGH 8개 | MEDIUM 8개 | LOW 7개*  
+*✅ 전체 28개 수정 완료 (2026-03-06)*
