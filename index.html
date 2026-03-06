@@ -556,27 +556,36 @@
 </div>
 
 <script>
-const { ipcRenderer } = require('electron');
+// ─────────────────────────────────────────────────────────────
+// P-02 수정: require('electron') 직접 호출 제거
+//   nodeIntegration:false + contextIsolation:true 환경에서
+//   require() 는 존재하지 않음 → window.electronAPI 로 모두 교체
+// P-03 수정: 누락된 IPC 채널을 preload.js 경유로 호출
+// ─────────────────────────────────────────────────────────────
+
+const api = window.electronAPI;
 
 let serverRunning = false;
 
-function minimize()   { ipcRenderer.send('minimize-window'); }
-function hideToTray() { ipcRenderer.send('hide-window'); }
+// ── 윈도우 제어 ──────────────────────────────────────────────
+function minimize()   { api.minimizeWindow(); }
+function hideToTray() { api.hideWindow(); }  // P-19 수정: hide 의도 명확화
 
+// ── 설정 토글 ────────────────────────────────────────────────
 function onToggleStartToTray(checked) {
-  ipcRenderer.send('save-settings', { startToTray: checked });
+  api.saveSettings({ startToTray: checked });
 }
 
 function onToggleTokenAuth(checked) {
   document.getElementById('webAppUrlRow').style.display = checked ? 'block' : 'none';
-  ipcRenderer.send('save-settings', { tokenAuth: checked });
+  api.saveSettings({ tokenAuth: checked });
 }
 
 function saveWebAppUrl(value) {
-  ipcRenderer.send('save-settings', { webAppUrl: value.trim() });
+  api.saveSettings({ webAppUrl: value.trim() });
 }
 
-// 포트 입력 실시간 유효성 표시
+// ── 포트 입력 유효성 ──────────────────────────────────────────
 function validatePortInput(input) {
   const v = parseInt(input.value);
   if (v >= 1024 && v <= 65535) {
@@ -586,12 +595,12 @@ function validatePortInput(input) {
   }
 }
 
+// ── 설정 반영 ────────────────────────────────────────────────
 function applySettings(s) {
   const toggle = document.getElementById('toggleStartToTray');
   if (toggle && s.startToTray !== undefined) toggle.checked = !!s.startToTray;
   const portInput = document.getElementById('portInput');
   if (portInput && s.port) { portInput.value = s.port; validatePortInput(portInput); }
-  // 토큰 인증 설정
   const tokenToggle = document.getElementById('toggleTokenAuth');
   if (tokenToggle && s.tokenAuth !== undefined) {
     tokenToggle.checked = !!s.tokenAuth;
@@ -601,13 +610,14 @@ function applySettings(s) {
   if (urlInput && s.webAppUrl !== undefined) urlInput.value = s.webAppUrl;
 }
 
+// ── 서버 제어 ────────────────────────────────────────────────
 function startServer() {
   const port = parseInt(document.getElementById('portInput').value) || 9902;
-  ipcRenderer.send('start-server', port);
+  api.startServer(port);
 }
 
 function stopServer() {
-  ipcRenderer.send('stop-server');
+  api.stopServer();
 }
 
 function applyPort() {
@@ -616,9 +626,10 @@ function applyPort() {
     document.getElementById('portInput').classList.add('invalid');
     return;
   }
-  ipcRenderer.send('change-port', port);
+  api.changePort(port);
 }
 
+// ── 로그 관련 ────────────────────────────────────────────────
 function clearLog() {
   document.getElementById('logBody').innerHTML = '<div class="log-empty" id="logEmpty">로그가 없습니다</div>';
 }
@@ -638,7 +649,6 @@ function copyLog() {
     btn.style.color = '#4ade80';
     setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
   }).catch(() => {
-    // clipboard API 실패 시 textarea fallback
     const ta = document.createElement('textarea');
     ta.value = lines.join('\n');
     document.body.appendChild(ta);
@@ -671,25 +681,26 @@ function escapeHtml(text) {
   return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// ── UI 업데이트 ──────────────────────────────────────────────
 function updateUI(status) {
   serverRunning = status.running;
-  const card       = document.getElementById('statusCard');
-  const badge      = document.getElementById('statusBadge');
-  const statusText = document.getElementById('statusText');
+  const card        = document.getElementById('statusCard');
+  const badge       = document.getElementById('statusBadge');
+  const statusText  = document.getElementById('statusText');
   const portDisplay = document.getElementById('portDisplay');
-  const btnStart   = document.getElementById('btnStart');
-  const btnStop    = document.getElementById('btnStop');
+  const btnStart    = document.getElementById('btnStart');
+  const btnStop     = document.getElementById('btnStop');
 
   portDisplay.textContent = status.port;
   document.getElementById('portInput').value = status.port;
-  document.getElementById('clientCount').textContent = status.clients;
-  document.getElementById('connCount').textContent = status.connections;
+  document.getElementById('clientCount').textContent  = status.clients;
+  document.getElementById('connCount').textContent    = status.connections;
 
-  // 버그 수정: status.settings 가 없어도 status 자체에서 직접 읽도록 방어 처리
+  // status.settings 유무 양쪽 모두 방어 처리
   if (status.settings) {
     applySettings(status.settings);
   } else {
-    applySettings(status); // getStatus() 에 settings 추가됐지만 하위 호환
+    applySettings(status);
   }
 
   if (status.running) {
@@ -697,23 +708,30 @@ function updateUI(status) {
     badge.className = 'status-badge on';
     statusText.textContent = '실행 중';
     btnStart.style.display = 'none';
-    btnStop.style.display = 'flex';
+    btnStop.style.display  = 'flex';
   } else {
     card.classList.remove('running');
     badge.className = 'status-badge off';
     statusText.textContent = '중지됨';
     btnStart.style.display = 'flex';
-    btnStop.style.display = 'none';
+    btnStop.style.display  = 'none';
   }
 }
 
-// IPC 리스너
-ipcRenderer.on('status',          (_, status) => updateUI(status));
-ipcRenderer.on('log',             (_, entry)  => addLogEntry(entry));
-ipcRenderer.on('settings-changed',(_, s)      => applySettings(s));
+// ── 앱 버전 표시 (P-23 수정: 하드코딩 제거) ──────────────────
+api.getAppVersion().then(ver => {
+  const el = document.querySelector('.footer-version');
+  if (el) el.textContent = 'v' + ver;
+});
+
+// ── IPC 이벤트 리스너 등록 ────────────────────────────────────
+// P-02/03 수정: ipcRenderer.on → api.onStatus/onLog/onSettingsChanged 경유
+api.onStatus((_, status)   => updateUI(status));
+api.onLog((_, entry)       => addLogEntry(entry));
+api.onSettingsChanged((_, s) => applySettings(s));
 
 // 초기 상태 요청
-ipcRenderer.send('request-status');
+api.requestStatus();
 </script>
 </body>
 </html>

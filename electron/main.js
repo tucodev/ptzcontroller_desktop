@@ -292,13 +292,56 @@ function showFatalError(msg) {
 }
 
 // ── IPC ───────────────────────────────────────────────────────
+// P-02/03 수정: index.html 에서 require('electron') 직접 호출 제거 후
+//              window.electronAPI 경유 → 아래 핸들러들이 반드시 존재해야 함
 ipcMain.handle("get-app-version", () => app.getVersion());
 ipcMain.on("minimize-window", () => mainWindow?.minimize());
 ipcMain.on("maximize-window", () => {
     if (!mainWindow) return;
     mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
 });
-ipcMain.on("close-window", () => mainWindow?.hide());
+// P-19 수정: close-window(닫기)와 hide-window(트레이)를 분리
+ipcMain.on("hide-window",  () => mainWindow?.hide());   // 트레이로 숨기기
+ipcMain.on("close-window", () => mainWindow?.hide());   // 기존 호환 유지 (트레이 앱 특성상 hide)
+
+// P-03 수정: index.html 에서 사용하는 누락된 IPC 핸들러 추가
+// PTZ Proxy 서버 제어용 — 현재 main.js 에는 Proxy 서버가 없으므로
+// 향후 구현을 위한 스텁(stub) 핸들러 등록 (무시하지 않고 로그 출력)
+ipcMain.on("start-server", (_, port) => {
+    console.log(`[IPC] start-server 요청: port=${port} (Proxy 서버 미구현)`);
+    // TODO: PTZ Proxy WebSocket 서버 시작 로직 (P-21 구현 시 채울 것)
+    if (mainWindow) {
+        mainWindow.webContents.send("status", {
+            running: false, port, clients: 0, connections: 0,
+        });
+    }
+});
+ipcMain.on("stop-server", () => {
+    console.log("[IPC] stop-server 요청 (Proxy 서버 미구현)");
+    // TODO: PTZ Proxy WebSocket 서버 중지 로직
+});
+ipcMain.on("change-port", (_, port) => {
+    console.log(`[IPC] change-port 요청: port=${port}`);
+    // TODO: 포트 변경 후 재시작
+});
+ipcMain.on("save-settings", (_, settings) => {
+    console.log("[IPC] save-settings:", settings);
+    // TODO: settings.json 저장 로직
+    if (mainWindow) {
+        mainWindow.webContents.send("settings-changed", settings);
+    }
+});
+ipcMain.on("request-status", () => {
+    // 현재 상태를 index.html 로 전송 (Proxy 서버 미구현이므로 기본값 반환)
+    if (mainWindow) {
+        mainWindow.webContents.send("status", {
+            running: false,
+            port: 9902,
+            clients: 0,
+            connections: 0,
+        });
+    }
+});
 
 // ── 앱 시작 ───────────────────────────────────────────────────
 app.whenReady().then(async () => {
