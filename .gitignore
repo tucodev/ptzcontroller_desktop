@@ -13,6 +13,10 @@ out/
 .env-in-standalone
 standalone/.env
 
-# ── 빌드 산출물 ──────────────────────────────────────────────
-standalone/server.js
-standalone/.env
+# ── 빌드 산출물 (copy:standalone 로 재생성됨) ─────────────────
+# standalone/server.js 는 P-09 패치 포함 버전으로 프로젝트에 포함
+# (재빌드 시 copy-standalone.js 에서 자동 패치됨)
+
+# ── 개발용 백업 파일 (P-22 수정) ─────────────────────────────
+electron/main.js.ok
+*.ok
