@@ -15,6 +15,16 @@ const fs = require("fs");
 const cp = require("child_process");
 const http = require("http");
 
+// ── Squirrel 설치/업데이트/언인스톨 이벤트 처리 (P-04 수정) ──────
+// 반드시 최상단에서 처리해야 함 — 그 이후 어떤 코드도 실행되지 않아야 함
+// Windows Squirrel 인스톨러가 설치/업데이트/삭제 시 특수 플래그를 전달:
+//   --squirrel-install, --squirrel-updated, --squirrel-uninstall 등
+// 이를 처리하지 않으면 Windows 설치 후 앱이 2회 실행되거나 종료가 안 됨
+if (require("electron-squirrel-startup")) {
+    app.quit();
+    process.exit(0);
+}
+
 // ── 단일 인스턴스 ─────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
