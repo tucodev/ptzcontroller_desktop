@@ -13,6 +13,11 @@
  * P-24 수정:
  *   ws 는 현재 main.js 에서 직접 사용하지 않으므로 asar.unpackDir 에서 제거.
  *   (main.js.ok 의 PTZ Proxy 기능 재활성화 시 다시 추가 필요)
+ *
+ * P-30 수정:
+ *   assets/icon.icns 누락 시 macOS DMG 빌드 실패 방지.
+ *   icon.icns 가 없으면 maker-dmg 의 icon 설정을 undefined 로 처리하고 경고 출력.
+ *   (macOS 공식 배포 시에는 iconutil 로 icon.icns 를 생성해야 함)
  */
 
 const fs   = require('fs');
@@ -34,6 +39,27 @@ if (hasNodeBin) {
 
 const extraResources = ['./standalone'];
 if (hasNodeBin) extraResources.push('./node-bin');
+
+// ── macOS icon.icns 조건부 처리 (P-30 수정) ─────────────────
+// icon.icns 는 macOS 전용 다중해상도 아이콘 포맷.
+// 파일이 없으면 maker-dmg 의 icon 필드를 제거하여 빌드 실패 방지.
+// 공식 macOS 배포 시에는 반드시 icon.icns 를 준비해야 함:
+//   mkdir icon.iconset
+//   sips -z 16 16 assets/icon.png -o icon.iconset/icon_16x16.png
+//   sips -z 32 32 assets/icon.png -o icon.iconset/icon_16x16@2x.png
+//   sips -z 128 128 assets/icon.png -o icon.iconset/icon_128x128.png
+//   sips -z 256 256 assets/icon.png -o icon.iconset/icon_128x128@2x.png
+//   sips -z 512 512 assets/icon.png -o icon.iconset/icon_512x512.png
+//   iconutil -c icns icon.iconset -o assets/icon.icns
+const icnsPath = path.resolve(__dirname, 'assets', 'icon.icns');
+const hasIcns  = fs.existsSync(icnsPath);
+
+if (!hasIcns) {
+  console.warn(
+    '[forge] ⚠️  assets/icon.icns 없음 — macOS DMG 아이콘이 기본값으로 설정됩니다.\n' +
+    '         공식 macOS 배포 시 iconutil 로 icon.icns 를 생성하세요.',
+  );
+}
 
 // ─────────────────────────────────────────────────────────────
 module.exports = {
@@ -97,11 +123,12 @@ module.exports = {
     },
     // macOS: DMG 설치 패키지 (P-26 수정: macOS 표준 배포 포맷 추가)
     // ⚠️ maker-dmg 는 macOS 환경에서만 빌드 가능 (hdiutil 의존)
+    // P-30 수정: icon.icns 없을 때 icon 필드 제거하여 빌드 실패 방지
     {
       name: '@electron-forge/maker-dmg',
       config: {
         name:   'PTZ Controller',
-        icon:   './assets/icon.icns',
+        ...(hasIcns ? { icon: './assets/icon.icns' } : {}),
         format: 'ULFO',
       },
       platforms: ['darwin'],

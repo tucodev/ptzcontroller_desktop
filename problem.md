@@ -481,6 +481,138 @@ LICENSE_SERVER_URL="http://127.0.0.1:4000"
 
 ---
 
+---
+
+## 🟠 HIGH (기능 오동작 / 빌드 실패 유발) — 2차 발견
+
+---
+
+### P-29. `waitForServer()` 항상 `localhost` 하드코딩 — PTZ_HOSTNAME 설정과 불일치
+
+**파일:** `electron/main.js`  
+**현상:**
+```js
+// 기존
+function waitForServer(retries = 120, interval = 500) {
+    http.get(`http://localhost:${PORT}`, ...)  // ← 항상 localhost 하드코딩
+}
+
+// startNextServer() 에서는 PTZ_HOSTNAME 로 동적 결정
+const serverHostname = envVars.PTZ_HOSTNAME || process.env.PTZ_HOSTNAME || "localhost";
+```
+`PTZ_HOSTNAME=192.168.1.x` 같이 설정해도 폴링은 `localhost`로 가서 서버 바인딩 IP와 불일치.  
+`0.0.0.0` 바인딩 시에는 `localhost`로도 접근 가능하지만 `serverHostname`이 특정 IP일 경우 불일치.  
+**수정:** `waitForServer(hostname, ...)` 파라미터 추가, `0.0.0.0`/`::` 시 `localhost`로 fallback.
+
+---
+
+### P-30. `assets/icon.icns` 파일 없음 — macOS DMG 빌드 실패
+
+**파일:** `forge.config.js`, `electron/main.js`, `assets/`  
+**현상:**
+```
+assets/
+  ├── icon.ico   ← Windows용 존재
+  ├── icon.png   ← 공통 존재
+  └── icon.icns  ← ❌ 없음!
+```
+`forge.config.js`의 `maker-dmg` 설정에서 `icon: './assets/icon.icns'`를 참조하지만 파일 없음.  
+macOS 빌드(`npm run make:mac`) 시 오류 발생.  
+`electron/main.js`의 `createWindow()`는 이미 방어 처리됨 (`.png` fallback).  
+**macOS `iconutil` 명령으로 생성:**
+```bash
+mkdir icon.iconset
+sips -z 512 512 assets/icon.png -o icon.iconset/icon_512x512.png
+iconutil -c icns icon.iconset -o assets/icon.icns
+```
+**수정:** `forge.config.js`에서 `icon.icns` 없을 때 조건부 처리 (없으면 icon 필드 제거).
+
+---
+
+## 🟡 MEDIUM (품질/안정성 이슈) — 2차 발견
+
+---
+
+### P-31. `DEFAULT_SETTINGS`에 `startToTray`, `tokenAuth`, `webAppUrl` 누락
+
+**파일:** `electron/main.js`, `standalone/data/settings.json`  
+**현상:**
+```js
+// index.html 에서 저장/로드
+api.saveSettings({ startToTray: checked });   // 시작 시 트레이
+api.saveSettings({ tokenAuth: checked });      // 토큰 인증
+api.saveSettings({ webAppUrl: value });        // 웹앱 URL
+
+// DEFAULT_SETTINGS — 위 항목 없음
+const DEFAULT_SETTINGS = {
+    defaultProtocol: "pelcod",
+    proxyPort: 9902,
+    // startToTray, tokenAuth, webAppUrl 없음 ← 문제
+};
+```
+최초 실행 또는 settings.json 초기화 시 `request-status` IPC 응답에 이 값들이 없어  
+`applySettings()` 에서 토글 초기화가 안 됨.  
+**수정:** `DEFAULT_SETTINGS`에 3개 항목 추가, `settings.json` 기본 파일도 업데이트.
+
+---
+
+### P-32. `server-status` IPC 채널 발송 로직 미구현
+
+**파일:** `electron/main.js`, `electron/preload.js`  
+**현상:**
+```js
+// preload.js — 수신 등록됨
+onServerStatus: (callback) => {
+    ipcRenderer.on('server-status', callback);  // ← 수신 준비
+}
+// main.js — 발송 코드가 전혀 없음 ← 문제
+```
+`P-05`에서 preload.js에 `onServerStatus` 를 추가했으나 `main.js`에서 발송 코드를 구현하지 않음.  
+`window.electronAPI.onServerStatus(cb)` 를 admin 앱(Next.js)에서 사용해도 콜백이 호출되지 않음.  
+**수정:**
+- `createWindow()` → `did-finish-load` 시 `server-status: { ready: true, port }` 발송
+- 서버 비정상 종료 시 `server-status: { ready: false, exitCode }` 발송
+
+---
+
+## 🔵 LOW (코드 품질 / 유지보수성) — 2차 발견
+
+---
+
+### P-33. `standalone/.env`에 실제 자격증명(placeholder 아님) 포함
+
+**파일:** `standalone/.env`  
+**현상:**
+```
+DATABASE_URL="postgresql://neondb_owner:npg_...(실제 비밀번호)@..."
+NEXTAUTH_SECRET="wdaa3EIyANLmrkF4ENZ6WRs8HDD0zQUJ"
+LICENSE_SERVER_URL="http://127.0.0.1:4000"  ← 배포 환경에서 동작 안 함
+```
+`standalone/.env`는 `.gitignore`에 있어 Git에 올라가지 않으므로 보안 이슈는 없음.  
+그러나 파일에 실제 자격증명이 그대로 있어 개발 환경에서 의도치 않게 노출될 수 있음.  
+`copy:standalone` 실행 시 `ptzcontroller_admin/.env`에서 자동 복사되므로  
+기본 상태의 `standalone/.env`는 placeholder로 유지하는 것이 바람직함.  
+**수정:** `standalone/.env`를 `.env.example` 형태의 placeholder 내용으로 교체.
+
+---
+
+### P-34. `docs/analysis-desk.md` 시작 시퀀스에 admin 앱의 역할 누락
+
+**파일:** `docs/analysis-desk.md`  
+**현상:**  
+문서에서 "앱 시작 순서"를 Electron 관점에서만 설명하고,  
+`ptzcontroller_admin` 내부의 DB 연결 확인, 오프라인 모드, 라이선스 처리 흐름이 빠져있음.  
+**실제 흐름:**
+1. Electron이 Next.js 서버 실행 (standalone/server.js)
+2. Next.js 서버가 DB 접속 시도
+3. DB 성공 → 정상 로그인 플로우
+4. DB 실패 → 오프라인 모드 → 라이선스 파일 확인
+5. 라이선스 없음/무효 → HW ID 생성 다이얼로그 → 파일 저장 → 공급자 전달
+6. 라이선스 유효 → 오프라인 정상 동작
+**수정:** `analysis-desk.md`에 admin 앱 내부 흐름 섹션 추가, 아키텍처 역할 명확화.
+
+---
+
 ## 📋 요약 테이블
 
 > **최종 업데이트:** 2026-03-06  
@@ -516,6 +648,12 @@ LICENSE_SERVER_URL="http://127.0.0.1:4000"
 | P-26 | 🔵 LOW | `forge.config.js` | macOS DMG 패키저 없음 | ✅ | f35cc0c |
 | P-27 | 🔵 LOW | `bundle-node.js` | 크로스 컴파일 미지원 | ✅ | f35cc0c |
 | P-28 | 🔵 LOW | `standalone/.env` | `LICENSE_SERVER_URL` localhost — 배포 환경 불가 | ✅ | f35cc0c |
+| P-29 | 🟠 HIGH | `main.js` | `waitForServer()` localhost 하드코딩 — PTZ_HOSTNAME 불일치 | ✅ | (이번 커밋) |
+| P-30 | 🟠 HIGH | `forge.config.js` | `icon.icns` 없어도 빌드 실패 — 조건부 처리 없음 | ✅ | (이번 커밋) |
+| P-31 | 🟡 MEDIUM | `main.js` / `settings.json` | `DEFAULT_SETTINGS`에 `startToTray`, `tokenAuth`, `webAppUrl` 누락 | ✅ | (이번 커밋) |
+| P-32 | 🟡 MEDIUM | `main.js` | `server-status` IPC 발송 로직 미구현 | ✅ | (이번 커밋) |
+| P-33 | 🔵 LOW | `standalone/.env` | 실제 자격증명 포함 → placeholder로 교체 | ✅ | (이번 커밋) |
+| P-34 | 🔵 LOW | `docs/analysis-desk.md` | 시작 시퀀스에 admin 앱 역할(DB/오프라인/라이선스) 누락 | ✅ | (이번 커밋) |
 
 ---
 
@@ -528,8 +666,9 @@ LICENSE_SERVER_URL="http://127.0.0.1:4000"
 | `1070eb7` | P-04 | `electron-squirrel-startup` 처리 코드 추가 |
 | `9803b95` | P-06, P-07, P-10~16, P-25 | `main.js` 프로세스 생명주기 전면 수정 |
 | `f35cc0c` | P-08, P-09, P-17~22, P-24, P-26~28 | 빌드/설정/스크립트 전면 수정 |
+| `(이번 커밋)` | P-29~P-34 | 2차 심층 분석 수정: waitForServer hostname, icon.icns 조건부, DEFAULT_SETTINGS 보완, server-status IPC, .env placeholder, analysis-desk 정정 |
 
 ---
 
-*총 28개 문제점 | CRITICAL 5개 | HIGH 8개 | MEDIUM 8개 | LOW 7개*  
-*✅ 전체 28개 수정 완료 (2026-03-06)*
+*총 34개 문제점 | CRITICAL 5개 | HIGH 10개 | MEDIUM 10개 | LOW 9개*  
+*✅ 전체 34개 수정 완료 (2026-03-06)*

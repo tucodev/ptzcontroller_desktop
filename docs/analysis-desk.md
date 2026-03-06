@@ -1,8 +1,21 @@
 # PTZ Controller Desktop — 동작 구조 분석
 
 > 작성일: 2026-03-06  
+> 수정일: 2026-03-06 (P-34: 시작 시퀀스 정정 — admin 앱의 역할 명확화)  
 > 분석 대상: `ptzcontroller_desktop` (Electron 래퍼 앱)  
-> 연관 프로젝트: `ptzcontroller_admin` (Next.js 웹앱)
+> 연관 프로젝트: `ptzcontroller_admin` (Next.js 웹앱 — 실제 비즈니스 로직)
+
+---
+
+## ⚠️ 중요: 아키텍처 이해
+
+**`ptzcontroller_desktop`은 `ptzcontroller_admin`(Next.js 웹앱)의 빌드 결과를  
+standalone으로 실행하는 얇은 Electron 래퍼입니다.**
+
+- **DB 연결 확인, 오프라인 모드, 라이선스 처리, HW ID 생성 등의 모든 비즈니스 로직은  
+  `ptzcontroller_admin` 앱 내부에 구현되어 있습니다.**
+- `ptzcontroller_desktop`은 admin 앱을 Node.js 자식 프로세스로 실행하고,  
+  BrowserWindow로 그 웹앱을 표시하는 것이 전부입니다.
 
 ---
 
@@ -20,27 +33,32 @@
 │           │                                                   │
 │           │ child_process.spawn()                             │
 │           ▼                                                   │
-│  ┌──────────────────┐                                        │
-│  │  Next.js 서버     │  ← standalone/server.js               │
-│  │  (Node.js)       │  ← PORT 3000                           │
-│  └────────┬─────────┘                                        │
-│           │                                                   │
-└───────────┼──────────────────────────────────────────────────┘
-            │ Prisma ORM (HTTPS)
-            ▼
-     ┌─────────────┐
-     │   NeonDB    │  ← 클라우드 PostgreSQL (ap-southeast-1)
-     │ (PostgreSQL)│
-     └─────────────┘
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │  Next.js 서버 (ptzcontroller_admin standalone)        │    │
+│  │  standalone/server.js                                │    │
+│  │  PORT 3000                                           │    │
+│  │                                                      │    │
+│  │  ┌─────────────────────────────────────────────────┐ │    │
+│  │  │ DB 연결 확인 → 온라인/오프라인 분기             │ │    │
+│  │  │ 오프라인: 라이선스 파일 확인 → HW ID 생성       │ │    │
+│  │  │ Next.js API Route (/api/*)                       │ │    │
+│  │  │ Prisma ORM → NeonDB (PostgreSQL)                 │ │    │
+│  │  │ NextAuth 인증                                    │ │    │
+│  │  └─────────────────────────────────────────────────┘ │    │
+│  └──────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 **핵심 개념:**  
 Electron이 Next.js 서버를 내장 자식 프로세스로 실행하고, BrowserWindow로 그 웹앱을 표시하는 구조입니다.  
-실제 앱 로직은 전부 Next.js(React + API Route) 안에 있고, **Electron은 "데스크톱 껍데기 + 서버 실행기" 역할**입니다.
+**실제 앱 로직(DB 연결, 인증, 라이선스, PTZ 제어)은 전부 Next.js(admin) 안에 있고,  
+Electron은 "데스크톱 껍데기 + 서버 실행기" 역할**입니다.
 
 ---
 
 ## 2. 앱 시작 순서 (Step-by-step)
+
+### [Desktop] Electron 시작 흐름
 
 ```
 Electron 실행 (ptz-controller.exe)
@@ -59,7 +77,7 @@ Electron 실행 (ptz-controller.exe)
    "시작 중..." 상태 표시
         │
         ▼
-④ Next.js 서버 spawn
+④ Next.js 서버 spawn (ptzcontroller_admin standalone)
    - standalone/server.js 를 node(또는 번들된 node.exe)로 실행
    - standalone/.env 파일을 읽어 환경변수 주입
      · DATABASE_URL   : NeonDB PostgreSQL 접속 URL
@@ -89,7 +107,48 @@ Electron 실행 (ptz-controller.exe)
    "● 실행 중 (포트 3000)" 상태로 변경
         │
         ▼
-⑧ 정상 사용
+⑧ 정상 사용 (admin 앱 로직 진행)
+```
+
+### [Admin] Next.js 앱 내부 시작 흐름
+
+**⚠️ 아래 로직은 모두 `ptzcontroller_admin` 앱 내부에 구현되어 있으며,  
+`ptzcontroller_desktop`(Electron)은 이 과정에 관여하지 않습니다.**
+
+```
+Next.js 서버 시작 후 브라우저 첫 접근
+        │
+        ▼
+① DB 접속 가능 여부 확인
+   (DATABASE_URL → NeonDB PostgreSQL 연결 시도)
+        │
+        ├─ [DB 접속 성공] ──────────────────────────────────────┐
+        │                                                       │
+        │                                                       ▼
+        │                                              정상 로그인 플로우
+        │                                              (NextAuth → DB 인증)
+        │
+        └─ [DB 접속 실패] ──────────────────────────────────────┐
+                                                               │
+                                                               ▼
+                                                    오프라인 모드 진입
+                                                               │
+                                                               ▼
+                                               ② 라이선스 파일 확인
+                                               (PTZ_DATA_DIR 경로에서 탐색)
+                                                               │
+                                         ┌─────────────────────┴─────────────────┐
+                                         │                                         │
+                              [라이선스 파일 없음 또는 유효하지 않음]     [라이선스 유효]
+                                         │                                         │
+                                         ▼                                         ▼
+                              ③ HW ID (Machine ID) 생성 안내              정상 오프라인 작동
+                              사용자에게 저장 여부 확인 다이얼로그
+                                         │
+                                         ▼
+                              HW ID 파일 저장 (파일 다이얼로그)
+                              → 공급자에게 전달
+                              → 라이선스 파일 수령 후 업로드
 ```
 
 ---
@@ -106,8 +165,8 @@ Electron 실행 (ptz-controller.exe)
 | `parseEnv()` | `.env` 파일 파싱 (인라인 주석 제거 포함) |
 | `findPrismaEngine()` | 플랫폼별 Prisma 엔진 바이너리 탐색 |
 | `killNextProcess()` | Windows: taskkill /T /F, Unix: SIGTERM |
-| `startNextServer()` | Next.js 서버 spawn (async, 에러 Promise 반환) |
-| `waitForServer()` | HTTP 폴링으로 서버 준비 대기 |
+| `startNextServer()` | Next.js 서버 spawn (async, hostname 반환) |
+| `waitForServer(hostname)` | HTTP 폴링으로 서버 준비 대기 (hostname 파라미터화) |
 | `createWindow()` | BrowserWindow 생성 및 설정 |
 | `createTray()` | 시스템 트레이 아이콘 및 메뉴 생성 |
 | `loadSettings()` | settings.json 읽기 (기본값 병합) |
@@ -117,12 +176,13 @@ Electron 실행 (ptz-controller.exe)
 
 ### 3-2. Next.js 서버 (`standalone/server.js`)
 
-- **Next.js 14 standalone 빌드** 결과물
+- **`ptzcontroller_admin` Next.js 14 standalone 빌드** 결과물
 - `startServer()` 함수로 HTTP 서버 실행
 - `process.env.__NEXT_PRIVATE_STANDALONE_CONFIG` 에 빌드 설정 내장
 - `outputFileTracingRoot` 는 런타임 `__dirname` 으로 동적 교체 (P-09 패치)
 - Prisma ORM을 통해 NeonDB(PostgreSQL)에 연결
 - NextAuth로 세션/인증 처리
+- **DB 접속 확인, 오프라인 모드, 라이선스 확인, HW ID 생성 등 모든 비즈니스 로직 포함**
 
 ### 3-3. Preload Script (`electron/preload.js`)
 
@@ -144,7 +204,7 @@ Electron 실행 (ptz-controller.exe)
 | `onStatus(cb)` | 상태 업데이트 수신 |
 | `onLog(cb)` | 로그 메시지 수신 |
 | `onSettingsChanged(cb)` | 설정 변경 수신 |
-| `onServerStatus(cb)` | 서버 상태 변경 수신 |
+| `onServerStatus(cb)` | 서버 상태 변경 수신 (P-32: 서버 ready/down 이벤트) |
 | `platform` | 현재 OS 플랫폼 |
 | `isDev` | 개발 모드 여부 |
 
@@ -153,7 +213,7 @@ Electron 실행 (ptz-controller.exe)
 - PTZ 프록시 WebSocket 서버 제어 전용 UI
 - 포트 설정, 시작/중지, 로그, 토큰 인증, 트레이 설정
 - **현재 Main Process에 Proxy 서버 미구현** (stub 핸들러만 존재)
-- `settings.json`의 `proxyPort` 값을 `request-status` IPC로 읽어 표시
+- `settings.json`의 `proxyPort`, `startToTray`, `tokenAuth`, `webAppUrl` 값을 읽어 표시
 
 ---
 
@@ -163,20 +223,19 @@ Electron 실행 (ptz-controller.exe)
 사용자 조작 (마우스/키보드)
         │
         ▼
-BrowserWindow (Next.js React UI)
+BrowserWindow (Next.js React UI — ptzcontroller_admin)
         │
-        ├── 일반 웹앱 기능
+        ├── 일반 웹앱 기능 (ptzcontroller_admin 내부 처리)
         │       │
         │       ▼
         │   Next.js API Route (/api/*)
         │       │
-        │       ▼
-        │   Prisma ORM
-        │       │
-        │       ▼
-        │   NeonDB (PostgreSQL) ← 카메라 설정, 사용자, 라이선스 등
+        │       ├── DB 연결 확인, 오프라인/온라인 분기
+        │       ├── 라이선스 검증
+        │       ├── HW ID 생성
+        │       └── Prisma ORM → NeonDB (PostgreSQL)
         │
-        └── Electron 전용 기능
+        └── Electron 전용 기능 (Electron IPC)
                 │
                 ▼
             window.electronAPI (preload.js contextBridge)
@@ -186,10 +245,10 @@ BrowserWindow (Next.js React UI)
                 │
                 ▼
             main.js IPC 핸들러
-            (창 제어, 설정 읽기/쓰기, 버전 조회 등)
+            (창 제어, 설정 읽기/쓰기, 버전 조회, PTZ Proxy stub)
                 │
                 ▼
-            settings.json (로컬 파일)
+            settings.json (로컬 파일 — PTZ Proxy 설정)
 ```
 
 ---
@@ -211,7 +270,7 @@ BrowserWindow (Next.js React UI)
 | `status` | main→renderer | `webContents.send` | 서버 상태 전송 |
 | `log` | main→renderer | `webContents.send` | 로그 메시지 전송 |
 | `settings-changed` | main→renderer | `webContents.send` | 설정 변경 알림 |
-| `server-status` | main→renderer | `webContents.send` | Next.js 서버 상태 |
+| `server-status` | main→renderer | `webContents.send` | Next.js 서버 ready/down 상태 (P-32) |
 
 ---
 
@@ -222,6 +281,7 @@ BrowserWindow (Next.js React UI)
 | 카메라 설정, 사용자 DB | NeonDB (클라우드) | Prisma ORM 경유 |
 | PTZ 프록시 설정 | `C:\ProgramData\PTZController\data\settings.json` (Win) | `loadSettings()`/`saveSettings()` |
 | 앱 환경변수 | `standalone/.env` | `copy:standalone` 시 자동 생성 |
+| 라이선스 파일 | `PTZ_DATA_DIR` 경로 (OS별 공유) | admin 앱에서 처리 |
 | Next.js 서버 번들 | `resources/standalone/` | extraResource |
 | 번들된 Node.js | `resources/node-bin/` | `bundle-node.js`로 생성 (선택) |
 | Electron 앱 코드 | `resources/app.asar` | Forge 빌드 산출물 |
@@ -247,18 +307,19 @@ PTZControllerSetup.exe 설치 후:
     ├── app.asar                ← Electron 코드 패키지
     │   ├── electron/main.js
     │   ├── electron/preload.js
-    │   ├── index.html
+    │   ├── index.html          ← PTZ Proxy UI (별도 창)
     │   └── package.json
     ├── app.asar.unpacked/
     │   └── node_modules/       ← native 모듈 (Prisma 엔진 등)
     │       ├── .prisma/client/
     │       │   └── query_engine-windows.dll.node
     │       └── @prisma/client/
-    ├── standalone/             ← Next.js 서버 전체 (extraResource)
-    │   ├── server.js           ← 진입점
-    │   ├── .env                ← 환경변수 (DB 접속 등)
+    ├── standalone/             ← ptzcontroller_admin 서버 전체 (extraResource)
+    │   ├── server.js           ← 진입점 (P-09 패치 적용)
+    │   ├── .env                ← 환경변수 (DB 접속 등, .gitignore 처리)
     │   ├── .next/              ← Next.js 빌드 산출물
     │   ├── public/             ← 정적 파일
+    │   ├── data/               ← settings.json (PTZ Proxy 설정)
     │   └── node_modules/       ← Next.js 의존성
     └── node-bin/               ← 번들 Node.js (선택)
         └── node.exe
@@ -315,16 +376,16 @@ will-quit 이벤트
 
 ```
 [개발]
-ptzcontroller_admin/
-  └── yarn build          ← Next.js standalone 빌드
+ptzcontroller_admin/         ← 실제 비즈니스 로직 (DB, 인증, 라이선스, PTZ)
+  └── yarn build              ← Next.js standalone 빌드
         │
         ▼
-ptzcontroller_desktop/
+ptzcontroller_desktop/       ← Electron 래퍼
   └── npm run copy:standalone
         ① standalone/     ← 서버 번들 복사
         ② .next/static/   ← 정적 파일 복사
         ③ public/         ← 공개 파일 복사
-        ④ data/           ← 카메라 설정 (기존 보존)
+        ④ data/           ← settings.json (기존 보존)
         ⑤ .env            ← 환경변수 복사 (NEXTAUTH_URL 자동 수정)
         ⑥ Prisma 엔진     ← .prisma/client, @prisma/client 복사
         ⑦ server.js 패치  ← outputFileTracingRoot → __dirname 교체
@@ -342,6 +403,8 @@ ptzcontroller_desktop/
 
 [배포]
 PTZControllerSetup.exe 실행 → Squirrel 설치 → 앱 실행
+  → Electron이 standalone/server.js 실행 (ptzcontroller_admin)
+  → admin 앱이 DB 연결 확인 → 온라인/오프라인 분기 → 라이선스 처리
 ```
 
 ---
@@ -350,12 +413,25 @@ PTZControllerSetup.exe 실행 → Squirrel 설치 → 앱 실행
 
 | 항목 | 상태 | 설명 |
 |---|---|---|
-| PTZ Proxy WebSocket 서버 | 🔲 미구현 | `main.js.ok` 참조하여 구현 필요 |
-| 오프라인 DB 지원 | 🔲 미지원 | 현재 NeonDB 클라우드 전용 |
+| PTZ Proxy WebSocket 서버 | 🔲 미구현 | `index.html` stub 핸들러만 존재, main.js에 구현 필요 |
 | 자동 업데이트 (Squirrel) | 🔲 미구현 | `iconUrl` 제거로 비활성화 상태 |
 | macOS 코드 서명 | 🔲 미설정 | 배포 시 Gatekeeper 경고 발생 |
 | Linux AppImage | 🔲 미설정 | deb/rpm 만 지원 |
+| `assets/icon.icns` | 🔲 미생성 | macOS DMG 아이콘 누락 (P-30: iconutil 명령 참조) |
 
 ---
 
-*문서 생성: 2026-03-06 | PTZ Controller Desktop v1.0.0*
+## 12. 수정 이력 요약 (P-29 ~ P-34)
+
+| ID | 파일 | 수정 내용 |
+|---|---|---|
+| P-29 | `electron/main.js` | `waitForServer()` hostname 파라미터화 — PTZ_HOSTNAME 설정과 일관성 확보 |
+| P-30 | `forge.config.js` | `icon.icns` 없을 때 조건부 처리 — macOS 빌드 실패 방지 |
+| P-31 | `electron/main.js`, `standalone/data/settings.json` | `DEFAULT_SETTINGS`에 `startToTray`, `tokenAuth`, `webAppUrl` 추가 |
+| P-32 | `electron/main.js` | `server-status` IPC 발송 구현 — 창 로드 완료 및 서버 종료 시 |
+| P-33 | `standalone/.env` | 실제 민감정보 → placeholder 교체 (파일은 .gitignore 보호) |
+| P-34 | `docs/analysis-desk.md` | admin 앱의 역할(DB확인/오프라인/라이선스) 명확화, 시작 시퀀스 정정 |
+
+---
+
+*문서 최종 수정: 2026-03-06 | PTZ Controller Desktop v1.0.0*

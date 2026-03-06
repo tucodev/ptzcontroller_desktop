@@ -72,12 +72,20 @@ const DEV_MODE = process.env.NODE_ENV === "development";
 // ── settings.json 읽기/쓰기 헬퍼 (P-21 수정) ─────────────────
 // standalone/data/settings.json 을 읽어 proxyPort 등 PTZ 설정을 제공.
 // 앱 실행 중 save-settings IPC 호출 시 파일에 영구 저장.
+//
+// P-31 수정: DEFAULT_SETTINGS 에 index.html 에서 사용하는
+//   startToTray, tokenAuth, webAppUrl 항목 추가.
+//   없으면 최초 실행 시 토글 UI 가 초기화되지 않아 설정 손실 발생.
 const DEFAULT_SETTINGS = {
     defaultProtocol: "pelcod",
     defaultOperationMode: "direct",
     proxyPort: 9902,
     logLevel: "info",
     theme: "dark",
+    // PTZ Proxy UI 설정 (index.html)
+    startToTray: false,   // 시작 시 트레이로 실행 여부
+    tokenAuth: false,     // 토큰 인증 사용 여부
+    webAppUrl: "",        // 토큰 검증 서버 주소 (PTZ Controller 웹앱 URL)
 };
 
 function getSettingsPath() {
@@ -201,6 +209,8 @@ function killNextProcess() {
 }
 
 // ── Next.js 서버 시작 (P-25 수정: async 전환 및 에러 처리 개선) ──
+// 반환값: { ok: true, hostname: serverHostname } | false
+//   P-29 수정: serverHostname 을 반환하여 waitForServer() 에 전달
 async function startNextServer() {
     const standalonePath = getStandalonePath();
     const serverJs = path.join(standalonePath, "server.js");
@@ -282,10 +292,20 @@ async function startNextServer() {
         });
 
         // P-12 수정: 서버 비정상 종료 시 사용자에게 dialog 알림
+        // P-32 수정: 서버 종료 시 server-status 이벤트 발송하여 렌더러에 알림
         nextProcess.on("exit", (code, signal) => {
             if (appQuitting) return; // 정상 종료 흐름이면 무시
             if (code !== 0 && signal !== "SIGTERM") {
                 console.error(`[Desktop] server exited: code=${code} signal=${signal}`);
+                // 렌더러에 서버 다운 상태 전파
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send("server-status", {
+                        ready: false,
+                        port: PORT,
+                        exitCode: code,
+                    });
+                }
+                serverReady = false;
                 dialog.showErrorBox(
                     "PTZ Controller — 서버 오류",
                     `Next.js 서버가 예기치 않게 종료되었습니다.\n` +
@@ -295,20 +315,31 @@ async function startNextServer() {
             }
         });
 
-        // spawn 이 성공적으로 시작됐으면 resolve(true)
+        // spawn 이 성공적으로 시작됐으면 resolve({ ok: true, hostname })
         // (error 이벤트가 없으면 성공으로 간주)
+        // P-29 수정: hostname 을 함께 반환하여 waitForServer() 에서 사용
         process.nextTick(() => {
-            if (nextProcess) resolve(true);
+            if (nextProcess) resolve({ ok: true, hostname: serverHostname });
         });
     });
 }
 
 // ── 서버 준비 대기 (HTTP 폴링) (P-11 수정: 타임아웃 60초로 증가) ──
-function waitForServer(retries = 120, interval = 500) {
+// P-29 수정: serverHostname 파라미터 추가로 PTZ_HOSTNAME 설정과 일관성 유지.
+//   단, 서버가 '0.0.0.0' 또는 '::' 에 바인딩된 경우에도 HTTP 요청은
+//   루프백(127.0.0.1 / localhost) 으로 보내야 하므로, 해당 케이스는
+//   자동으로 'localhost' 로 대체한다.
+function waitForServer(hostname, retries = 120, interval = 500) {
+    // 0.0.0.0 / 비어있음 / :: 바인딩이면 루프백으로 폴링
+    const pollHost =
+        !hostname || hostname === "0.0.0.0" || hostname === "::"
+            ? "localhost"
+            : hostname;
+    const url = `http://${pollHost}:${PORT}`;
     return new Promise((resolve, reject) => {
         let tried = 0;
         const check = () => {
-            http.get(`http://localhost:${PORT}`, (res) => {
+            http.get(url, (res) => {
                 res.resume();
                 serverReady = true;
                 resolve();
@@ -317,7 +348,7 @@ function waitForServer(retries = 120, interval = 500) {
                     reject(
                         new Error(
                             `서버가 ${(retries * interval) / 1000}초 내에 응답하지 않습니다.\n` +
-                            `포트: ${PORT}\n` +
+                            `폴링 URL: ${url}\n` +
                             `Next.js 서버 로그를 확인하세요.`,
                         ),
                     );
@@ -366,6 +397,13 @@ function createWindow() {
 
     mainWindow.webContents.on("did-finish-load", () => {
         if (!mainWindow.isVisible()) mainWindow.show();
+        // P-32 수정: 페이지 로드 완료 시 Next.js 서버 상태를 렌더러에 전달.
+        // admin 앱(Next.js)이 window.electronAPI.onServerStatus() 로 이 이벤트를 받아
+        // 서버 준비 상태를 UI에 반영할 수 있음.
+        mainWindow.webContents.send("server-status", {
+            ready: serverReady,
+            port: PORT,
+        });
     });
 
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -521,11 +559,17 @@ app.whenReady().then(async () => {
     createTray();
 
     // P-25 수정: startNextServer 를 await 로 호출 (에러 감지 가능)
+    // P-29 수정: startNextServer 가 반환하는 hostname 을 waitForServer 에 전달
     const started = await startNextServer();
     if (!started) return; // showFatalError 에서 종료 처리됨
 
+    // started 가 { ok: true, hostname } 형태인 경우 hostname 추출
+    // 이전 버전 호환 (true 반환 시)을 위해 fallback 처리
+    const resolvedHostname =
+        started && typeof started === "object" ? started.hostname : "localhost";
+
     try {
-        await waitForServer();
+        await waitForServer(resolvedHostname);
         console.log(`[Desktop] Ready → http://localhost:${PORT}`);
         updateTrayMenu();
         createWindow();
