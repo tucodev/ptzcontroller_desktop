@@ -15,7 +15,7 @@ process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(nextConfig)
 // P-09 패치: outputFileTracingRoot 를 런타임 __dirname 으로 덮어씀
 // (빌드 시 하드코딩된 개발 환경 절대경로를 배포 환경에서 유효한 경로로 교체)
 try {
-  const _cfg = JSON.parse(process.env.__NEXT_PRIVATE_STANDALONE_CONFIG || '{}');
+  const _cfg = JSON.parse(process.env.__NEXT_PRIVATE_STANDALONE_CONFIG || "{}");
   if (_cfg.experimental) _cfg.experimental.outputFileTracingRoot = __dirname;
   process.env.__NEXT_PRIVATE_STANDALONE_CONFIG = JSON.stringify(_cfg);
 } catch(_e) {}
