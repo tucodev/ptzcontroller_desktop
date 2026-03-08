@@ -31,6 +31,68 @@ export interface OfflineSession {
     };
 }
 
+/**
+ * 오프라인 라이선스 요청 생성 (사용자 정보 포함)
+ *
+ * 1. SQLite에서 사용자 정보 로드
+ * 2. 다이얼로그에서 사용자 편집 가능
+ * 3. 요청 파일 생성
+ * 4. SQLite 업데이트
+ */
+export async function createLicenseRequestWithUserInfo(): Promise<{
+    success: boolean;
+    request?: RequestPayload;
+    userInfo?: {
+        userId: string;
+        userName: string;
+        userOrg: string;
+        userEmail: string;
+    };
+    error?: string;
+}> {
+    try {
+        // 1단계: SQLite에서 사용자 정보 로드
+        const { getOfflineUser } = await import("./offline-db");
+
+        // 현재 로그인 사용자 찾기 (가장 최근 로그인 사용자)
+        const allUsers = require("./offline-db").getAllOfflineUsers?.() ?? [];
+        const currentUser = allUsers.length > 0 ? allUsers[0] : null;
+
+        if (!currentUser) {
+            return {
+                success: false,
+                error: "저장된 사용자 정보가 없습니다. 먼저 로그인하세요.",
+            };
+        }
+
+        // 2단계: 사용자 정보 준비
+        const userInfo = {
+            userId: currentUser.id,
+            userName: currentUser.name || "",
+            userOrg: currentUser.organization || "",
+            userEmail: currentUser.email,
+        };
+
+        // 3단계: 라이선스 요청 생성
+        const request = createLicenseRequest(userInfo);
+
+        return {
+            success: true,
+            request,
+            userInfo,
+        };
+    } catch (err) {
+        console.error(
+            "[OfflineMode] Failed to create license request with user info:",
+            err,
+        );
+        return {
+            success: false,
+            error: (err as Error).message,
+        };
+    }
+}
+
 // ── DB 연결 상태 캐시 ────────────────────────────────────────────────
 let _dbAvailable: boolean | null = null;
 let _lastCheckTime = 0;
@@ -87,6 +149,7 @@ export function resetDbCache(): void {
  * 라이선스 파일 검증 (✅ Admin과 동일)
  * lib/license.ts의 verifyLicense 호출
  */
+
 async function verifyOfflineLicense(): Promise<{
     valid: boolean;
     expiresAt?: string;
@@ -103,15 +166,11 @@ async function verifyOfflineLicense(): Promise<{
 
             try {
                 const request = createLicenseRequest();
-                const content = Buffer.from(
-                    JSON.stringify(request, null, 2),
-                ).toString("base64");
-                fs.mkdirSync(licenseDir, { recursive: true });
-                fs.writeFileSync(
-                    path.join(licenseDir, "license.ptzreq"),
-                    content,
-                    "utf-8",
-                );
+                // ✅ 이 부분은 두 가지 방식 모두 가능:
+                saveRequestFile(request); // ← request 전달
+                // 또는
+                // saveRequestFile();  // ← 인자 없음 (내부에서 새로 생성)
+
                 console.log(
                     "[OfflineMode] License request saved at:",
                     path.join(licenseDir, "license.ptzreq"),

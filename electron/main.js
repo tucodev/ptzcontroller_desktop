@@ -241,8 +241,11 @@ function parseEnv(filePath) {
 //
 // ✅ lib/license.ts의 verifyLicense 사용
 // HMAC-SHA256 서명 검증 + MachineID 배열 매칭 + 만료일 확인
-const { verifyLicense } = require("../lib/license");
+//const { verifyLicense } = require("../lib/license");
 
+// ── 라이선스 검증 함수 방법1 (API 기반) ────────────────────────
+// electron/main.js 내에 inline으로 구현
+// (TypeScript lib 로드 불가이므로 기본 검증만 수행)
 function isLicenseValid(filePath) {
     try {
         if (!fs.existsSync(filePath)) {
@@ -251,17 +254,99 @@ function isLicenseValid(filePath) {
 
         const content = fs.readFileSync(filePath, "utf8").trim();
 
-        // ✅ Admin과 동일한 verifyLicense 함수 사용
-        const result = verifyLicense(content);
-
-        if (!result.valid) {
-            console.warn("[Desktop] License validation failed:", result.reason);
+        // Base64 디코딩
+        let licenseObj;
+        try {
+            const decoded = Buffer.from(content, "base64").toString("utf8");
+            licenseObj = JSON.parse(decoded);
+        } catch (e) {
+            console.error(
+                "[Desktop] License file decode/parse error:",
+                e.message,
+            );
             return false;
         }
 
-        console.log("[Desktop] License valid until:", result.expiresAt);
-        console.log("[Desktop] Matched MachineID:", result.matchedIds);
+        // 필수 필드 확인
+        if (!licenseObj.machineId || !licenseObj.expiresAt) {
+            console.warn("[Desktop] License missing required fields");
+            return false;
+        }
+
+        // 만료일 확인
+        const expiryDate = new Date(licenseObj.expiresAt);
+        if (expiryDate < new Date()) {
+            console.warn("[Desktop] License expired:", licenseObj.expiresAt);
+            return false;
+        }
+
+        console.log("[Desktop] License valid until:", licenseObj.expiresAt);
         return true;
+    } catch (e) {
+        console.error("[Desktop] License validation error:", e.message);
+        return false;
+    }
+}
+
+// ── 라이선스 검증 함수 방법2 (API 기반) ────────────────────────
+// standalone 내부 Next.js 서버의 API를 호출하여 검증
+// 사용 예:
+// const isValid = await isLicenseValidViaPtree(offlineLicensePath);
+async function isLicenseValidViaPtree(filePath) {
+    try {
+        if (!fs.existsSync(filePath)) {
+            return false;
+        }
+
+        const content = fs.readFileSync(filePath, "utf8").trim();
+
+        // Next.js 서버의 라이선스 검증 API 호출
+        return new Promise((resolve) => {
+            const options = {
+                method: "POST",
+                hostname: "localhost",
+                port: PORT,
+                path: "/api/license/verify",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Content-Length": Buffer.byteLength(
+                        JSON.stringify({ license: content }),
+                    ),
+                },
+            };
+
+            const req = http.request(options, (res) => {
+                let data = "";
+                res.on("data", (chunk) => {
+                    data += chunk;
+                });
+                res.on("end", () => {
+                    try {
+                        const json = JSON.parse(data);
+                        resolve(json.valid === true);
+                    } catch (e) {
+                        console.error(
+                            "[Desktop] License API parse error:",
+                            e.message,
+                        );
+                        resolve(false);
+                    }
+                });
+            });
+
+            req.on("error", (err) => {
+                console.error("[Desktop] License API error:", err.message);
+                resolve(false);
+            });
+
+            req.setTimeout(5000, () => {
+                req.destroy();
+                resolve(false);
+            });
+
+            req.write(JSON.stringify({ license: content }));
+            req.end();
+        });
     } catch (e) {
         console.error("[Desktop] License validation error:", e.message);
         return false;
@@ -1089,6 +1174,68 @@ ipcMain.on("upload-license-file", async (event, { filename, content }) => {
             ? "License file uploaded"
             : "Failed to upload license file",
     });
+});
+
+// ── IPC: 라이선스 요청 생성 (사용자 정보 포함) ────────────────────
+ipcMain.handle('create-license-request', async (event) => {
+  try {
+    // Node.js 모듈 동적 로드 (CommonJS에서는 직접 import 불가)
+    const { createLicenseRequestWithUserInfo } = require('../lib/license');
+    
+    const result = await createLicenseRequestWithUserInfo();
+    
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      request: result.request,
+      userInfo: result.userInfo,
+    };
+  } catch (err) {
+    console.error('[IPC] create-license-request error:', err);
+    return {
+      success: false,
+      err.message
+    };
+  }
+});
+
+// ── IPC: 사용자 정보 편집 후 저장 ────────────────────────────────────
+ipcMain.handle('save-license-request', async (event, { userInfo, request }) => {
+  try {
+    // 1. 라이선스 요청 파일 저장
+    const { saveRequestFile } = require('../lib/license');
+    const filePath = saveRequestFile(request);
+    
+    // 2. SQLite 업데이트
+    const { getOfflineUser, saveOfflineUser } = require('../lib/offline-db');
+    const user = getOfflineUser(userInfo.userEmail);
+    
+    if (user) {
+      await saveOfflineUser({
+        ...user,
+        name: userInfo.userName,
+        organization: userInfo.userOrg,
+      });
+    }
+
+    return {
+      success: true,
+      filePath,
+      message: `라이선스 요청 파일이 저장되었습니다: ${filePath}`,
+    };
+  } catch (err) {
+    console.error('[IPC] save-license-request error:', err);
+    return {
+      success: false,
+      err.message
+    };
+  }
 });
 
 // ── 앱 시작

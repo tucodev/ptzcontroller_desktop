@@ -382,27 +382,79 @@ export const LICENSE_FILE_PATH = path.join(getLicenseDir(), "offline.ptzlic");
 export const REQUEST_FILE_PATH = path.join(getLicenseDir(), "license.ptzreq");
 
 // ── 라이선스 요청 생성 ────────────────────────────────────────────────
-export function createLicenseRequest(): RequestPayload {
+// ── 타입 정의 (수정) ────────────────────────────────────────────────────────
+export interface RequestPayload {
+    // 사용자 정보 (추가)
+    userId?: string;
+    userName?: string;
+    userOrg?: string;
+    userEmail?: string;
+
+    // 기계 정보
+    machineId: string;
+    machineIds: string[];
+
+    // 요청 정보
+    requestedAt: string;
+    product: string;
+    sig: string;
+}
+
+/**
+ * 라이선스 요청 생성 (사용자 정보 포함)
+ */
+export function createLicenseRequest(userInfo?: {
+    userId?: string;
+    userName?: string;
+    userOrg?: string;
+    userEmail?: string;
+}): RequestPayload {
     const machineIds = getAllMachineIds();
     const machineId = machineIds[0] ?? "UNKNOWN";
     const requestedAt = new Date().toISOString();
-    const payload = { machineId, machineIds, requestedAt, product: PRODUCT_ID };
+
+    const payload = {
+        userId: userInfo?.userId ?? "unknown",
+        userName: userInfo?.userName ?? "",
+        userOrg: userInfo?.userOrg ?? "",
+        userEmail: userInfo?.userEmail ?? "",
+        machineId,
+        machineIds,
+        requestedAt,
+        product: PRODUCT_ID,
+    };
+
     const sig = crypto
         .createHmac("sha256", MASTER_SECRET)
-        .update(JSON.stringify(payload))
+        .update(
+            JSON.stringify({
+                machineId,
+                machineIds,
+                requestedAt,
+                product: PRODUCT_ID,
+            }),
+        )
         .digest("hex")
         .slice(0, 16);
 
     return { ...payload, sig };
 }
 
-export function saveRequestFile(): string {
-    const request = createLicenseRequest();
-    const content = Buffer.from(JSON.stringify(request, null, 2)).toString(
+/**
+ * 라이선스 요청 저장
+ * @param request - 선택적: RequestPayload. 제공되지 않으면 새로 생성
+ */
+export function saveRequestFile(request?: RequestPayload): string {
+    // request가 제공되지 않으면 새로 생성
+    const req = request || createLicenseRequest();
+
+    const content = Buffer.from(JSON.stringify(req, null, 2)).toString(
         "base64",
     );
     fs.mkdirSync(path.dirname(REQUEST_FILE_PATH), { recursive: true });
     fs.writeFileSync(REQUEST_FILE_PATH, content, "utf8");
+
+    console.log("[license] License request saved at:", REQUEST_FILE_PATH);
     return REQUEST_FILE_PATH;
 }
 

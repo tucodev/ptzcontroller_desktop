@@ -2,7 +2,35 @@
 
 ## 빌드 순서 (총정리)
 
+---
+
+### 요약 최종
+
+#### 의존성 설치
+
+npm install
+
+#### 개발 모드로 실행해보기
+
+npm run dev
+
+#### 빌드
+
+npm run prebuild
+
+#### 데스크톱 앱 패키징
+
+node scripts/bundle-node.js
+
+npm run make:win # Windows
+npm run make:mac # macOS
+npm run make:linux # Linux
+
+---
+
 ### 요약
+
+#### 먼저 ptzcontroller_admin 을 빌드해야함. (standalone 사용을 위해)
 
 ```
 # 이미 빌드시 생략 가능
