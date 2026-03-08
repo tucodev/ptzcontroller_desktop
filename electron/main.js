@@ -17,29 +17,34 @@ const {
     Menu,
     nativeImage,
     shell,
-    ipcMain, // ← Must have this
+    ipcMain,
     dialog,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const cp = require("child_process");
 const http = require("http");
-const WebSocket = require("ws"); // P-33: WebSocket 서버 추가
+const WebSocket = require("ws");
 
-// ── Squirrel 설치/업데이트/언인스톨 이벤트 처리
+// ════════════════════════════════════════════════════════════════
+// STARTUP CHECKS
+// ════════════════════════════════════════════════════════════════
+
 if (require("electron-squirrel-startup")) {
     app.quit();
     process.exit(0);
 }
 
-// ── 단일 인스턴스
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
     app.quit();
     process.exit(0);
 }
 
-// ── 경로 계산
+// ════════════════════════════════════════════════════════════════
+// PATH UTILITIES
+// ════════════════════════════════════════════════════════════════
+
 function getStandalonePath() {
     return app.isPackaged
         ? path.join(process.resourcesPath, "standalone")
@@ -58,7 +63,6 @@ function getNodeExecutable() {
     return process.platform === "win32" ? "node.exe" : "node";
 }
 
-// ── OS별 공유 라이선스/데이터 디렉토리
 function getSharedDataDir() {
     if (process.platform === "win32") {
         const pd =
@@ -83,36 +87,7 @@ function getSharedDataDir() {
     }
 }
 
-// # P-46: Online License Verification & Auto-Save Implementation
-
-// ## 개요
-// - 온라인 로그인 성공 시 라이선스 서버에서 라이선스 파일 자동 수신
-// - `C:\ProgramData\PTZController\online.ptzlic` 저장
-// - 오프라인 모드 진입 시 라이선스 검증
-
-// ## 수정 파일 목록
-// 1. electron/main.js - 라이선스 검증/저장 함수 추가
-// 2. electron/preload.js - IPC 메소드 추가
-// 3. standalone/server.js (ptzcontroller_admin) - 라이선스 API 엔드포인트 (기존)
-// 4..env.example - LICENSE_SERVER_URL 설정값
-
-// # P-46 Implementation: electron/main.js
-// **File Path**: `ptzcontroller_desktop/electron/main.js`
-// **Modification**: Add after existing functions, before `app.whenReady()`
-
-// ## Part 1: License Path Constants (Add after getSharedDataDir)
-
-// ── 라이선스 파일 경로 (P-46 추가) ────────────────────────
-// Windows: C:\ProgramData\PTZController\online.ptzlic
-// macOS: /Library/Application Support/PTZController/online.ptzlic
-// Linux: ~/.config/PTZController/online.ptzlic
-// ptzcontroller_admin 과 동일한 경로 사용 (lib/license.ts 참조)
-
-// ── 라이선스 파일 경로 (P-46 추가) ────────────────────────
 function getLicensePath() {
-    // Windows: C:\ProgramData\PTZController\
-    // macOS: /Library/Application Support/PTZController/
-    // Linux: ~/.config/PTZController/
     if (process.platform === "win32") {
         const pd =
             process.env.PROGRAMDATA ||
@@ -130,19 +105,21 @@ function getLicensePath() {
     }
 }
 
-const ONLINE_LICENSE_FILE = "online.ptzlic"; // 온라인 라이선스 (자동 저장)
-const OFFLINE_LICENSE_FILE = "offline.ptzlic"; // 오프라인 라이선스 (수동 업로드)
-const OFFLINE_REQUEST_FILE = "offline.ptzreq"; // 오프라인 요청
-
 function getLicenseFilePath(filename) {
     return path.join(getLicensePath(), filename);
 }
 
-// ── 설정
+// ════════════════════════════════════════════════════════════════
+// CONSTANTS & CONFIG
+// ════════════════════════════════════════════════════════════════
+
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const DEV_MODE = process.env.NODE_ENV === "development";
 
-// ── settings.json 읽기/쓰기 헬퍼
+const ONLINE_LICENSE_FILE = "online.ptzlic";
+const OFFLINE_LICENSE_FILE = "offline.ptzlic";
+const OFFLINE_REQUEST_FILE = "offline.ptzreq";
+
 const DEFAULT_SETTINGS = {
     defaultProtocol: "pelcod",
     defaultOperationMode: "direct",
@@ -153,6 +130,10 @@ const DEFAULT_SETTINGS = {
     tokenAuth: false,
     webAppUrl: "",
 };
+
+// ════════════════════════════════════════════════════════════════
+// SETTINGS MANAGEMENT
+// ════════════════════════════════════════════════════════════════
 
 function getSettingsPath() {
     const standalonePath = getStandalonePath();
@@ -167,7 +148,7 @@ function loadSettings() {
             return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
         }
     } catch (e) {
-        console.warn("[Desktop] settings.json 읽기 실패:", e.message);
+        console.warn("[Desktop] settings.json read error:", e.message);
     }
     return { ...DEFAULT_SETTINGS };
 }
@@ -181,71 +162,15 @@ function saveSettings(settings) {
         fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2), "utf8");
         return merged;
     } catch (e) {
-        console.error("[Desktop] settings.json 저장 실패:", e.message);
+        console.error("[Desktop] settings.json save error:", e.message);
         return null;
     }
 }
 
-// ── 전역 상태
-let mainWindow = null;
-let tray = null;
-let nextProcess = null;
-let serverReady = false;
-let appQuitting = false;
+// ════════════════════════════════════════════════════════════════
+// LICENSE MANAGEMENT
+// ════════════════════════════════════════════════════════════════
 
-// ── P-33: PTZ Proxy 서버 관련 상태
-let proxyServer = null;
-let proxyWss = null;
-let proxyClients = new Set();
-let proxyConnections = new Map(); // clientId -> { ptzDevice, status }
-let proxyRunning = false;
-
-// ── .env 파싱
-function parseEnv(filePath) {
-    const vars = {};
-    if (!fs.existsSync(filePath)) return vars;
-    fs.readFileSync(filePath, "utf8")
-        .split("\n")
-        .forEach((line) => {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith("#")) return;
-            const eqIdx = trimmed.indexOf("=");
-            if (eqIdx < 1) return;
-            const key = trimmed.slice(0, eqIdx).trim();
-            let val = trimmed.slice(eqIdx + 1).trim();
-            if (
-                (val.startsWith('"') && val.endsWith('"')) ||
-                (val.startsWith("'") && val.endsWith("'"))
-            ) {
-                val = val.slice(1, -1);
-            } else {
-                val = val.replace(/\s+#.*$/, "").trim();
-            }
-            vars[key] = val;
-        });
-    return vars;
-}
-
-// ── 라이선스 검증 함수 (수정) ────────────────────────
-// ── 라이선스 검증 함수 (P-46 추가) ────────────────────────
-// 라이선스 파일 형식:
-// {
-//   "machineId":"HWID-...",
-//   "machineIds":["HWID-...", ...],
-//   "issuedAt":"2026-03-07T...",
-//   "expiresAt":"2027-03-07T...",
-//   "product":"PTZ-OFFLINE",
-//   "sig":"sha256_hmac_hex"
-// }
-// 파일 저장 형식: Base64(JSON)
-//
-// ✅ lib/license.ts의 verifyLicense 사용
-// HMAC-SHA256 서명 검증 + MachineID 배열 매칭 + 만료일 확인
-//const { verifyLicense } = require("../lib/license");
-
-// ── 라이선스 검증 함수 방법1 (API 기반) ────────────────────────
-// electron/main.js 내에 inline으로 구현
-// (TypeScript lib 로드 불가이므로 기본 검증만 수행)
 function isLicenseValid(filePath) {
     try {
         if (!fs.existsSync(filePath)) {
@@ -254,26 +179,23 @@ function isLicenseValid(filePath) {
 
         const content = fs.readFileSync(filePath, "utf8").trim();
 
-        // Base64 디코딩
+        // Base64 decode
         let licenseObj;
         try {
             const decoded = Buffer.from(content, "base64").toString("utf8");
             licenseObj = JSON.parse(decoded);
         } catch (e) {
-            console.error(
-                "[Desktop] License file decode/parse error:",
-                e.message,
-            );
+            console.error("[Desktop] License decode error:", e.message);
             return false;
         }
 
-        // 필수 필드 확인
+        // Check required fields
         if (!licenseObj.machineId || !licenseObj.expiresAt) {
             console.warn("[Desktop] License missing required fields");
             return false;
         }
 
-        // 만료일 확인
+        // Check expiry
         const expiryDate = new Date(licenseObj.expiresAt);
         if (expiryDate < new Date()) {
             console.warn("[Desktop] License expired:", licenseObj.expiresAt);
@@ -288,10 +210,6 @@ function isLicenseValid(filePath) {
     }
 }
 
-// ── 라이선스 검증 함수 방법2 (API 기반) ────────────────────────
-// standalone 내부 Next.js 서버의 API를 호출하여 검증
-// 사용 예:
-// const isValid = await isLicenseValidViaPtree(offlineLicensePath);
 async function isLicenseValidViaPtree(filePath) {
     try {
         if (!fs.existsSync(filePath)) {
@@ -300,7 +218,6 @@ async function isLicenseValidViaPtree(filePath) {
 
         const content = fs.readFileSync(filePath, "utf8").trim();
 
-        // Next.js 서버의 라이선스 검증 API 호출
         return new Promise((resolve) => {
             const options = {
                 method: "POST",
@@ -358,10 +275,7 @@ function saveLicenseFile(filename, content) {
         const filePath = getLicenseFilePath(filename);
         const dir = path.dirname(filePath);
 
-        // 디렉토리 생성
         fs.mkdirSync(dir, { recursive: true });
-
-        // 파일 저장 (content는 이미 base64 인코딩된 상태)
         fs.writeFileSync(filePath, content, "utf8");
         console.log(`[Desktop] License saved: ${filePath}`);
         return true;
@@ -384,11 +298,6 @@ function readLicenseFile(filename) {
         return null;
     }
 }
-// ── 라이선스 서버 검증 함수 (P-46 추가) ─────────────────────
-// ptzcontroller_admin 의 /api/license/request-online 로 요청
-// Request: POST http://localhost:3000/api/license/request-online
-// Headers: Cookie: next-auth.session-token=<token>
-// Response: { status: "approved", license: "base64...", machineId: "HWID-...", message: "..." }
 
 async function validateLicenseFromServer(serverUrl, apiPath, sessionToken) {
     if (!serverUrl || !sessionToken) {
@@ -414,7 +323,7 @@ async function validateLicenseFromServer(serverUrl, apiPath, sessionToken) {
                 path: urlObj.pathname + (urlObj.search || ""),
                 headers: {
                     "Content-Type": "application/json",
-                    "Content-Length": 2, // '{}' 길이
+                    "Content-Length": 2,
                     Cookie: `next-auth.session-token=${sessionToken}`,
                 },
             };
@@ -438,7 +347,7 @@ async function validateLicenseFromServer(serverUrl, apiPath, sessionToken) {
                             console.log(
                                 "[Desktop] License validation successful",
                             );
-                            resolve(json.license); // base64-encoded license
+                            resolve(json.license);
                         } else {
                             console.warn(
                                 "[Desktop] License validation failed:",
@@ -468,14 +377,12 @@ async function validateLicenseFromServer(serverUrl, apiPath, sessionToken) {
                 resolve(null);
             });
 
-            // 타임아웃: 10초
             req.setTimeout(10000, () => {
                 console.warn("[Desktop] License validation request timeout");
                 req.destroy();
                 resolve(null);
             });
 
-            // 빈 JSON 바디 전송
             req.write("{}");
             req.end();
         });
@@ -485,7 +392,10 @@ async function validateLicenseFromServer(serverUrl, apiPath, sessionToken) {
     }
 }
 
-// ── Prisma 엔진 탐색
+// ════════════════════════════════════════════════════════════════
+// PRISMA ENGINE & NEXT.JS SERVER
+// ════════════════════════════════════════════════════════════════
+
 function findPrismaEngine(standalonePath) {
     const clientDir = path.join(
         standalonePath,
@@ -516,7 +426,31 @@ function findPrismaEngine(standalonePath) {
     return "";
 }
 
-// ── Next.js 프로세스 안전 종료
+function parseEnv(filePath) {
+    const vars = {};
+    if (!fs.existsSync(filePath)) return vars;
+    fs.readFileSync(filePath, "utf8")
+        .split("\n")
+        .forEach((line) => {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith("#")) return;
+            const eqIdx = trimmed.indexOf("=");
+            if (eqIdx < 1) return;
+            const key = trimmed.slice(0, eqIdx).trim();
+            let val = trimmed.slice(eqIdx + 1).trim();
+            if (
+                (val.startsWith('"') && val.endsWith('"')) ||
+                (val.startsWith("'") && val.endsWith("'"))
+            ) {
+                val = val.slice(1, -1);
+            } else {
+                val = val.replace(/\s+#.*$/, "").trim();
+            }
+            vars[key] = val;
+        });
+    return vars;
+}
+
 function killNextProcess() {
     if (!nextProcess) return;
     const proc = nextProcess;
@@ -529,20 +463,19 @@ function killNextProcess() {
         } else {
             proc.kill("SIGTERM");
         }
-        console.log("[Desktop] Next.js 서버 프로세스 종료 완료");
+        console.log("[Desktop] Next.js process killed");
     } catch (e) {
-        console.warn("[Desktop] 프로세스 종료 오류:", e.message);
+        console.warn("[Desktop] Process kill error:", e.message);
     }
 }
 
-// ── Next.js 서버 시작
 async function startNextServer() {
     const standalonePath = getStandalonePath();
     const serverJs = path.join(standalonePath, "server.js");
 
     if (!fs.existsSync(serverJs)) {
         showFatalError(
-            `server.js 를 찾을 수 없습니다.\n${serverJs}\n\nnpm run copy:standalone 을 먼저 실행하세요.`,
+            `server.js not found.\n${serverJs}\n\nRun: npm run copy:standalone`,
         );
         return false;
     }
@@ -576,22 +509,8 @@ async function startNextServer() {
         "[Desktop] DATABASE_URL:",
         serverEnv.DATABASE_URL
             ? serverEnv.DATABASE_URL.replace(/:([^:@]+)@/, ":***@")
-            : "❌ NOT SET",
+            : "NOT SET",
     );
-
-    if (
-        serverEnv.LICENSE_SERVER_URL &&
-        /127\.0\.0\.1|localhost/.test(serverEnv.LICENSE_SERVER_URL)
-    ) {
-        console.warn(
-            "[Desktop] WARNING: LICENSE_SERVER_URL points to localhost:",
-            serverEnv.LICENSE_SERVER_URL,
-        );
-        console.warn(
-            "[Desktop]    For production, use actual license server URL",
-        );
-        console.warn("[Desktop]    or leave it unset for offline mode.");
-    }
 
     return new Promise((resolve) => {
         nextProcess = cp.spawn(nodeExe, [serverJs], {
@@ -612,8 +531,8 @@ async function startNextServer() {
             nextProcess = null;
             showFatalError(
                 err.code === "ENOENT"
-                    ? `Node.js 실행 파일을 찾을 수 없습니다.\n${nodeExe}`
-                    : `서버 실행 오류: ${err.message}`,
+                    ? `Node.js not found.\n${nodeExe}`
+                    : `Server error: ${err.message}`,
             );
             resolve(false);
         });
@@ -633,10 +552,10 @@ async function startNextServer() {
                 }
                 serverReady = false;
                 dialog.showErrorBox(
-                    "PTZ Controller — 서버 오류",
-                    `Next.js 서버가 예기치 않게 종료되었습니다.\n` +
-                        `종료 코드: ${code}\n\n` +
-                        `앱을 재시작해 주세요.`,
+                    "PTZ Controller — Server Error",
+                    `Next.js server exited unexpectedly.\n` +
+                        `Exit code: ${code}\n\n` +
+                        `Please restart the app.`,
                 );
             }
         });
@@ -647,7 +566,6 @@ async function startNextServer() {
     });
 }
 
-// ── 서버 준비 대기
 function waitForServer(hostname, retries = 120, interval = 500) {
     const pollHost =
         !hostname || hostname === "0.0.0.0" || hostname === "::"
@@ -665,9 +583,8 @@ function waitForServer(hostname, retries = 120, interval = 500) {
                 if (++tried >= retries)
                     reject(
                         new Error(
-                            `Server didn't response in ${(retries * interval) / 1000}sec.\n` +
-                                `Poing URL: ${url}\n` +
-                                `Verify Server Logs of Next.js.`,
+                            `Server didn't respond in ${(retries * interval) / 1000}sec.\n` +
+                                `Ping URL: ${url}`,
                         ),
                     );
                 else setTimeout(check, interval);
@@ -677,10 +594,29 @@ function waitForServer(hostname, retries = 120, interval = 500) {
     });
 }
 
-// ── P-33: PTZ Proxy WebSocket 서버 시작
+// ════════════════════════════════════════════════════════════════
+// GLOBAL STATE
+// ════════════════════════════════════════════════════════════════
+
+let mainWindow = null;
+let tray = null;
+let nextProcess = null;
+let serverReady = false;
+let appQuitting = false;
+
+let proxyServer = null;
+let proxyWss = null;
+let proxyClients = new Set();
+let proxyConnections = new Map();
+let proxyRunning = false;
+
+// ════════════════════════════════════════════════════════════════
+// PTZ PROXY SERVER
+// ════════════════════════════════════════════════════════════════
+
 function startProxyServer(port) {
     if (proxyRunning) {
-        console.warn("Server Run already [Proxy]");
+        console.warn("[Proxy] Server already running");
         return false;
     }
 
@@ -700,10 +636,9 @@ function startProxyServer(port) {
             });
 
             console.log(
-                `[Proxy] 클라이언트 연결: ${clientId} (총 ${proxyClients.size}개)`,
+                `[Proxy] Client connected: ${clientId} (total: ${proxyClients.size})`,
             );
 
-            // 클라이언트 상태 전송
             updateProxyStatus();
 
             ws.on("message", (message) => {
@@ -714,14 +649,14 @@ function startProxyServer(port) {
                 proxyClients.delete(clientId);
                 proxyConnections.delete(clientId);
                 console.log(
-                    `[Proxy] 클라이언트 연결 해제: ${clientId} (남은 ${proxyClients.size}개)`,
+                    `[Proxy] Client disconnected: ${clientId} (remaining: ${proxyClients.size})`,
                 );
                 updateProxyStatus();
             });
 
             ws.on("error", (error) => {
                 console.error(
-                    `[Proxy] WebSocket 에러 (${clientId}):`,
+                    `[Proxy] WebSocket error (${clientId}):`,
                     error.message,
                 );
             });
@@ -729,29 +664,30 @@ function startProxyServer(port) {
 
         proxyServer.listen(port, "0.0.0.0", () => {
             proxyRunning = true;
-            console.log(`[Proxy] WebSocket 서버 시작: ws://0.0.0.0:${port}`);
+            console.log(
+                `[Proxy] WebSocket server started: ws://0.0.0.0:${port}`,
+            );
             updateProxyStatus();
         });
 
         proxyServer.on("error", (err) => {
-            console.error("[Proxy] 서버 에러:", err.message);
+            console.error("[Proxy] Server error:", err.message);
             proxyRunning = false;
             if (mainWindow) {
                 mainWindow.webContents.send("proxy-error", {
-                    message: `포트 ${port} 바인딩 실패: ${err.message}`,
+                    message: `Port ${port} binding failed: ${err.message}`,
                 });
             }
         });
 
         return true;
     } catch (err) {
-        console.error("[Proxy] 서버 시작 실패:", err.message);
+        console.error("[Proxy] Start failed:", err.message);
         proxyRunning = false;
         return false;
     }
 }
 
-// ── P-33: PTZ Proxy 클라이언트 메시지 처리
 function handleProxyMessage(clientId, message) {
     try {
         const conn = proxyConnections.get(clientId);
@@ -759,15 +695,13 @@ function handleProxyMessage(clientId, message) {
 
         const data = JSON.parse(message);
 
-        // 메시지 타입별 처리
         switch (data.type) {
             case "init":
-                // 클라이언트 초기화: 프로토콜 및 장치 지정
-                conn.protocol = data.protocol || "pelcod"; // pelcod / ujin
+                conn.protocol = data.protocol || "pelcod";
                 conn.ptzDevice = data.device || null;
                 conn.status = "authenticated";
                 console.log(
-                    `[Proxy] 클라이언트 초기화: ${clientId} (${conn.protocol})`,
+                    `[Proxy] Client initialized: ${clientId} (${conn.protocol})`,
                 );
                 conn.ws.send(
                     JSON.stringify({
@@ -780,12 +714,10 @@ function handleProxyMessage(clientId, message) {
                 break;
 
             case "command":
-                // PTZ 제어 명령
                 handlePTZCommand(clientId, data);
                 break;
 
             case "ping":
-                // 연결 유지 신호
                 conn.ws.send(
                     JSON.stringify({
                         type: "pong",
@@ -795,23 +727,19 @@ function handleProxyMessage(clientId, message) {
                 break;
 
             default:
-                console.warn(`[Proxy] 알 수 없는 메시지 타입: ${data.type}`);
+                console.warn(`[Proxy] Unknown message type: ${data.type}`);
         }
     } catch (err) {
-        console.error("[Proxy] 메시지 처리 에러:", err.message);
+        console.error("[Proxy] Message handling error:", err.message);
     }
 }
 
-// ── P-33: PTZ 제어 명령 처리
 function handlePTZCommand(clientId, data) {
     const conn = proxyConnections.get(clientId);
     if (!conn) return;
 
     const { command, params } = data;
-    console.log(`[Proxy] 명령 수신: ${clientId} -> ${command}`, params);
-
-    // 실제 PTZ 장치로 명령 전달 (여기서는 로그만)
-    // 향후: UART/TCP 등으로 실제 카메라에 명령 전달
+    console.log(`[Proxy] Command: ${clientId} -> ${command}`, params);
 
     const response = {
         type: "command-ack",
@@ -822,12 +750,9 @@ function handlePTZCommand(clientId, data) {
     };
 
     conn.ws.send(JSON.stringify(response));
-
-    // 모든 클라이언트에 상태 업데이트 브로드캐스트
     broadcastProxyStatus();
 }
 
-// ── P-33: PTZ Proxy 상태 업데이트
 function updateProxyStatus() {
     if (mainWindow && !mainWindow.isDestroyed()) {
         const status = {
@@ -841,7 +766,6 @@ function updateProxyStatus() {
     }
 }
 
-// ── P-33: 모든 클라이언트에 상태 브로드캐스트
 function broadcastProxyStatus() {
     const statusMsg = {
         type: "proxy-status",
@@ -854,40 +778,36 @@ function broadcastProxyStatus() {
             try {
                 conn.ws.send(JSON.stringify(statusMsg));
             } catch (err) {
-                console.warn("[Proxy] 상태 브로드캐스트 실패:", err.message);
+                console.warn("[Proxy] Broadcast failed:", err.message);
             }
         }
     }
 }
 
-// ── P-33: PTZ Proxy 서버 중지
 function stopProxyServer() {
     if (!proxyRunning) {
-        console.warn("[Proxy] 서버가 실행 중이 아닙니다");
+        console.warn("[Proxy] Server not running");
         return false;
     }
 
     try {
-        // 모든 클라이언트 연결 해제
         for (const [clientId, conn] of proxyConnections) {
             if (conn.ws) {
-                conn.ws.close(1000, "서버 종료");
+                conn.ws.close(1000, "Server shutdown");
             }
         }
         proxyConnections.clear();
         proxyClients.clear();
 
-        // WebSocket 서버 종료
         if (proxyWss) {
             proxyWss.close(() => {
-                console.log("[Proxy] WebSocket 서버 종료");
+                console.log("[Proxy] WebSocket server closed");
             });
         }
 
-        // HTTP 서버 종료
         if (proxyServer) {
             proxyServer.close(() => {
-                console.log("[Proxy] HTTP 서버 종료");
+                console.log("[Proxy] HTTP server closed");
             });
         }
 
@@ -897,12 +817,15 @@ function stopProxyServer() {
         updateProxyStatus();
         return true;
     } catch (err) {
-        console.error("[Proxy] 서버 중지 실패:", err.message);
+        console.error("[Proxy] Stop failed:", err.message);
         return false;
     }
 }
 
-// ── BrowserWindow 생성
+// ════════════════════════════════════════════════════════════════
+// WINDOW MANAGEMENT
+// ════════════════════════════════════════════════════════════════
+
 function createWindow() {
     const assetsDir = path.join(__dirname, "..", "assets");
     let iconPath;
@@ -965,7 +888,6 @@ function createWindow() {
     if (DEV_MODE) mainWindow.webContents.openDevTools({ mode: "detach" });
 }
 
-// ── 트레이
 function createTray() {
     const icoPath = path.join(__dirname, "..", "assets", "icon.ico");
     const pngPath = path.join(__dirname, "..", "assets", "icon.png");
@@ -989,14 +911,14 @@ function updateTrayMenu() {
             { label: "PTZ Controller", enabled: false },
             {
                 label: serverReady
-                    ? `● 실행 중 (포트 ${PORT})`
-                    : "○ 시작 중...",
+                    ? `● Running (port ${PORT})`
+                    : "○ Starting...",
                 enabled: false,
             },
             { type: "separator" },
-            { label: "열기", click: () => showWindow() },
+            { label: "Open", click: () => showWindow() },
             { type: "separator" },
-            { label: "종료", click: () => quitApp() },
+            { label: "Quit", click: () => quitApp() },
         ]),
     );
 }
@@ -1007,7 +929,6 @@ function showWindow() {
     mainWindow.focus();
 }
 
-// ── 종료
 function quitApp() {
     appQuitting = true;
     app.quit();
@@ -1021,7 +942,10 @@ function showFatalError(msg) {
     quitApp();
 }
 
-// ── IPC
+// ════════════════════════════════════════════════════════════════
+// IPC HANDLERS
+// ════════════════════════════════════════════════════════════════
+
 ipcMain.handle("get-app-version", () => app.getVersion());
 ipcMain.on("minimize-window", () => mainWindow?.minimize());
 ipcMain.on("maximize-window", () => {
@@ -1031,16 +955,16 @@ ipcMain.on("maximize-window", () => {
 ipcMain.on("hide-window", () => mainWindow?.hide());
 ipcMain.on("close-window", () => mainWindow?.hide());
 
-// ── P-33: PTZ Proxy 서버 제어 IPC (완전 구현)
+// ── Proxy Control IPC
 ipcMain.on("start-server", (_, port) => {
     const proxyPort = port || loadSettings().proxyPort || 9902;
-    console.log(`[IPC] start-server 요청: port=${proxyPort}`);
+    console.log(`[IPC] start-server: port=${proxyPort}`);
 
     if (startProxyServer(proxyPort)) {
-        console.log(`[Proxy] 서버 시작 성공: ws://0.0.0.0:${proxyPort}`);
+        console.log(`[Proxy] Started: ws://0.0.0.0:${proxyPort}`);
         updateProxyStatus();
     } else {
-        console.error(`[Proxy] 서버 시작 실패`);
+        console.error(`[Proxy] Start failed`);
         if (mainWindow) {
             mainWindow.webContents.send("status", {
                 running: false,
@@ -1054,18 +978,18 @@ ipcMain.on("start-server", (_, port) => {
 });
 
 ipcMain.on("stop-server", () => {
-    console.log("[IPC] stop-server 요청");
+    console.log("[IPC] stop-server");
 
     if (stopProxyServer()) {
-        console.log("[Proxy] 서버 중지 성공");
+        console.log("[Proxy] Stopped");
         updateProxyStatus();
     } else {
-        console.error("[Proxy] 서버 중지 실패");
+        console.error("[Proxy] Stop failed");
     }
 });
 
 ipcMain.on("change-port", (_, port) => {
-    console.log(`[IPC] change-port 요청: port=${port}`);
+    console.log(`[IPC] change-port: port=${port}`);
     const updated = saveSettings({ proxyPort: port });
     if (updated && mainWindow) {
         mainWindow.webContents.send("settings-changed", updated);
@@ -1093,19 +1017,11 @@ ipcMain.on("request-status", () => {
     }
 });
 
-// ── 라이선스 관련 IPC 핸들러 (P-46 추가) ──────────────────
-// 렌더러(Next.js 웹앱) ← → 메인 프로세스 (Electron)
-
+// ── License IPC Handlers
 ipcMain.on(
     "validate-license-online",
     async (event, { serverUrl, apiPath, sessionToken }) => {
-        console.log("[IPC] validate-license-online requested");
-        console.log("[IPC]   serverUrl:", serverUrl);
-        console.log("[IPC]   apiPath:", apiPath);
-        console.log(
-            "[IPC]   sessionToken:",
-            sessionToken ? `${sessionToken.slice(0, 10)}...` : "NONE",
-        );
+        console.log("[IPC] validate-license-online");
 
         const license = await validateLicenseFromServer(
             serverUrl,
@@ -1118,14 +1034,12 @@ ipcMain.on(
             event.sender.send("license-validated", {
                 success: saved,
                 license: saved ? license : null,
-                message: saved
-                    ? "License saved successfully"
-                    : "Failed to save license",
+                message: saved ? "License saved" : "Save failed",
             });
         } else {
             event.sender.send("license-validated", {
                 success: false,
-                message: "License server validation failed",
+                message: "Server validation failed",
             });
         }
     },
@@ -1170,75 +1084,14 @@ ipcMain.on("upload-license-file", async (event, { filename, content }) => {
 
     event.sender.send("license-uploaded", {
         success: saved,
-        message: saved
-            ? "License file uploaded"
-            : "Failed to upload license file",
+        message: saved ? "License uploaded" : "Upload failed",
     });
 });
 
-// ── IPC: 라이선스 요청 생성 (사용자 정보 포함) ────────────────────
-ipcMain.handle('create-license-request', async (event) => {
-  try {
-    // Node.js 모듈 동적 로드 (CommonJS에서는 직접 import 불가)
-    const { createLicenseRequestWithUserInfo } = require('../lib/license');
-    
-    const result = await createLicenseRequestWithUserInfo();
-    
-    if (!result.success) {
-      return {
-        success: false,
-        error: result.error,
-      };
-    }
+// ════════════════════════════════════════════════════════════════
+// APP LIFECYCLE
+// ════════════════════════════════════════════════════════════════
 
-    return {
-      success: true,
-      request: result.request,
-      userInfo: result.userInfo,
-    };
-  } catch (err) {
-    console.error('[IPC] create-license-request error:', err);
-    return {
-      success: false,
-      err.message
-    };
-  }
-});
-
-// ── IPC: 사용자 정보 편집 후 저장 ────────────────────────────────────
-ipcMain.handle('save-license-request', async (event, { userInfo, request }) => {
-  try {
-    // 1. 라이선스 요청 파일 저장
-    const { saveRequestFile } = require('../lib/license');
-    const filePath = saveRequestFile(request);
-    
-    // 2. SQLite 업데이트
-    const { getOfflineUser, saveOfflineUser } = require('../lib/offline-db');
-    const user = getOfflineUser(userInfo.userEmail);
-    
-    if (user) {
-      await saveOfflineUser({
-        ...user,
-        name: userInfo.userName,
-        organization: userInfo.userOrg,
-      });
-    }
-
-    return {
-      success: true,
-      filePath,
-      message: `라이선스 요청 파일이 저장되었습니다: ${filePath}`,
-    };
-  } catch (err) {
-    console.error('[IPC] save-license-request error:', err);
-    return {
-      success: false,
-      err.message
-    };
-  }
-});
-
-// ── 앱 시작
 app.whenReady().then(async () => {
     createTray();
 
@@ -1254,7 +1107,7 @@ app.whenReady().then(async () => {
         updateTrayMenu();
         createWindow();
     } catch (err) {
-        showFatalError(`Faile to start server\n\n${err.message}`);
+        showFatalError(`Failed to start server\n\n${err.message}`);
     }
 });
 
@@ -1273,7 +1126,6 @@ app.on("window-all-closed", (e) => e.preventDefault());
 
 app.on("before-quit", () => {
     appQuitting = true;
-    // P-33: Proxy 서버 먼저 종료
     if (proxyRunning) {
         stopProxyServer();
     }
@@ -1291,8 +1143,8 @@ process.on("uncaughtException", (err) => {
     console.error("[Desktop] uncaughtException:", err);
     try {
         dialog.showErrorBox(
-            "PTZ Controller — 오류",
-            `예기치 않은 오류가 발생했습니다.\n\n${err.message}`,
+            "PTZ Controller — Error",
+            `Unexpected error.\n\n${err.message}`,
         );
     } catch {}
     quitApp();
