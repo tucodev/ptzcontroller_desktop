@@ -1,19 +1,22 @@
 /**
- * offline-mode.ts (수정)
+ * offline-mode.ts
  *
  * 변경사항:
  * 1. createOfflineSession() 호출 시 라이선스 검증 추가
  * 2. 라이선스 파일 검증 및 만료 체크
  * 3. 라이선스 없으면 요청 파일 생성
+ *
+ * Electron 데스크톱 환경용 오프라인 모드 구현
+ * (Prisma 없음, 라이선스 파일만 사용)
  */
+
 import path from "path";
 import fs from "fs";
 
-// DB 연결 상태 캐시 (standalone 환경에 맞춤)
 let _dbAvailable: boolean | null = null;
 let _lastCheckTime = 0;
-const CACHE_TTL_MS = 30_000; // 30초
-const DB_CHECK_TIMEOUT_MS = 3_000; // 3초
+const CACHE_TTL_MS = 30_000;
+const DB_CHECK_TIMEOUT_MS = 3_000;
 
 export interface OfflineSession {
     user: {
@@ -30,10 +33,7 @@ export interface OfflineSession {
     };
 }
 
-// Electron 환경에서는 DB 체크 불필요 - 항상 offline DB 사용
 export async function isDbAvailable(): Promise<boolean> {
-    // Electron 데스크톱 환경에서는 항상 false 반환
-    // (온라인 DB는 ptzcontroller_admin이 관리)
     return false;
 }
 
@@ -42,33 +42,22 @@ export function resetDbCache(): void {
     _lastCheckTime = 0;
 }
 
-/**
- * 라이선스 파일 경로 (크로스 플랫폼)
- */
 function getLicenseDir(): string {
-    let dataDir: string;
-
     if (process.platform === "win32") {
-        dataDir = path.join(
+        return path.join(
             process.env.PROGRAMDATA || "C:\\ProgramData",
             "PTZController",
         );
     } else if (process.platform === "darwin") {
-        dataDir = path.join(
+        return path.join(
             process.env.HOME || "/",
             "Library/Application Support/PTZController",
         );
     } else {
-        // Linux
-        dataDir = path.join(process.env.HOME || "/", ".config/PTZController");
+        return path.join(process.env.HOME || "/", ".config/PTZController");
     }
-
-    return dataDir;
 }
 
-/**
- * 라이선스 파일 검증
- */
 function verifyOfflineLicense(): {
     valid: boolean;
     expiresAt?: string;
@@ -85,7 +74,6 @@ function verifyOfflineLicense(): {
 
         const licenseContent = fs.readFileSync(licenseFile, "utf-8").trim();
 
-        // Base64 디코딩
         let licenseObj: any;
         try {
             const decoded = Buffer.from(licenseContent, "base64").toString(
@@ -93,16 +81,14 @@ function verifyOfflineLicense(): {
             );
             licenseObj = JSON.parse(decoded);
         } catch (e) {
-            console.error("[OfflineMode] License file decode error:", e);
+            console.error("[OfflineMode] License decode error:", e);
             return { valid: false, reason: "Invalid format" };
         }
 
-        // 필수 필드 확인
         if (!licenseObj.expiresAt) {
             return { valid: false, reason: "Missing expiresAt" };
         }
 
-        // 만료 확인
         const expiresAt = new Date(licenseObj.expiresAt);
         if (expiresAt < new Date()) {
             console.warn(
@@ -120,9 +106,6 @@ function verifyOfflineLicense(): {
     }
 }
 
-/**
- * 오프라인 세션 생성
- */
 export async function createOfflineSession(): Promise<OfflineSession> {
     const licenseStatus = verifyOfflineLicense();
 
@@ -146,9 +129,6 @@ export async function createOfflineSession(): Promise<OfflineSession> {
     };
 }
 
-/**
- * 오프라인 세션 타입 가드
- */
 export function isOfflineSession(session: unknown): session is OfflineSession {
     return (
         typeof session === "object" &&

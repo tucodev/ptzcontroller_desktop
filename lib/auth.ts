@@ -1,3 +1,10 @@
+/**
+ * auth.ts
+ *
+ * Electron 데스크톱용 NextAuth CredentialsProvider
+ * (오프라인 DB만 사용)
+ */
+
 import bcrypt from "bcryptjs";
 import {
     getOfflineUser,
@@ -6,16 +13,14 @@ import {
     updateOfflineModeStatus,
 } from "./offline-db";
 
-// NextAuth CredentialsProvider authorize 함수
-async function authorize(credentials: any) {
+export async function authorize(credentials: any) {
     if (!credentials?.email || !credentials?.password) {
         return null;
     }
 
     console.log("[Auth] Login attempt:", credentials.email);
 
-    // ptzcontroller_desktop은 Electron 앱이므로 온라인 DB 접근 불가
-    // → 오직 오프라인 DB만 사용
+    // Electron은 Prisma 접근 불가 → 오프라인 DB만 사용
     try {
         const offlineUser = await verifyOfflinePassword(
             credentials.email,
@@ -25,8 +30,6 @@ async function authorize(credentials: any) {
 
         if (offlineUser) {
             console.log("[Auth] Offline login successful:", credentials.email);
-
-            // 오프라인 모드 상태 업데이트
             updateOfflineModeStatus(offlineUser.email, true);
 
             return {
