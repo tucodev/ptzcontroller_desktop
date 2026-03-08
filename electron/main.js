@@ -226,6 +226,7 @@ function parseEnv(filePath) {
     return vars;
 }
 
+// ── 라이선스 검증 함수 (수정) ────────────────────────
 // ── 라이선스 검증 함수 (P-46 추가) ────────────────────────
 // 라이선스 파일 형식:
 // {
@@ -237,6 +238,10 @@ function parseEnv(filePath) {
 //   "sig":"sha256_hmac_hex"
 // }
 // 파일 저장 형식: Base64(JSON)
+//
+// ✅ lib/license.ts의 verifyLicense 사용
+// HMAC-SHA256 서명 검증 + MachineID 배열 매칭 + 만료일 확인
+const { verifyLicense } = require("../lib/license");
 
 function isLicenseValid(filePath) {
     try {
@@ -246,42 +251,16 @@ function isLicenseValid(filePath) {
 
         const content = fs.readFileSync(filePath, "utf8").trim();
 
-        // Base64 디코딩
-        let licenseObj;
-        try {
-            const decoded = Buffer.from(content, "base64").toString("utf8");
-            licenseObj = JSON.parse(decoded);
-        } catch (e) {
-            console.error(
-                "[Desktop] License file decode/parse error:",
-                e.message,
-            );
+        // ✅ Admin과 동일한 verifyLicense 함수 사용
+        const result = verifyLicense(content);
+
+        if (!result.valid) {
+            console.warn("[Desktop] License validation failed:", result.reason);
             return false;
         }
 
-        // 필수 필드 확인
-        if (!licenseObj.machineId || !licenseObj.expiresAt) {
-            console.warn("[Desktop] License missing required fields");
-            return false;
-        }
-
-        // 만료일 확인
-        const expiryDate = new Date(licenseObj.expiresAt);
-        if (expiryDate < new Date()) {
-            console.warn("[Desktop] License expired:", licenseObj.expiresAt);
-            return false;
-        }
-
-        // 상태 확인 (있으면)
-        if (licenseObj.status && licenseObj.status !== "valid") {
-            console.warn(
-                "[Desktop] License status invalid:",
-                licenseObj.status,
-            );
-            return false;
-        }
-
-        console.log("[Desktop] License valid until:", licenseObj.expiresAt);
+        console.log("[Desktop] License valid until:", result.expiresAt);
+        console.log("[Desktop] Matched MachineID:", result.matchedIds);
         return true;
     } catch (e) {
         console.error("[Desktop] License validation error:", e.message);
