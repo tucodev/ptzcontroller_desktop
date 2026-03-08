@@ -29,10 +29,11 @@
         "@electron-forge/maker-squirrel": "^7.2.0",
         "@electron-forge/maker-zip": "^7.2.0",
         "@electron-forge/plugin-auto-unpack-natives": "^7.2.0",
-        "electron": "^40.6.1",
-        "ws": "^8.19.0"
+        "electron": "^40.6.1"
     },
     "dependencies": {
-        "electron-squirrel-startup": "^1.0.0"
+        "better-sqlite3": "^12.6.2",
+        "electron-squirrel-startup": "^1.0.0",
+        "ws": "^8.19.0"
     }
 }

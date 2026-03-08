@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PTZ Proxy</title>
-<style>
-  /*
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>PTZ Proxy</title>
+        <style>
+            /*
    * 버그 수정: 외부 Google Fonts 제거
    * Electron 앱은 오프라인(사내망 등) 환경에서 실행되는 경우가 많음.
    * @import url('https://fonts.googleapis.com/...') 는 폰트 로드 실패 시
@@ -14,724 +14,1010 @@
    * Syne         → Segoe UI  → system-ui   → sans-serif
    */
 
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
 
-  :root {
-    --bg: #0f0f13;
-    --surface: #16161d;
-    --surface2: #1e1e28;
-    --border: #2a2a38;
-    --accent: #00e5a0;
-    --accent-dim: rgba(0, 229, 160, 0.12);
-    --accent-glow: rgba(0, 229, 160, 0.35);
-    --red: #ff4d6a;
-    --red-dim: rgba(255, 77, 106, 0.12);
-    --yellow: #ffd166;
-    --text: #e8e8f0;
-    --text-muted: #6b6b85;
-    --text-dim: #3a3a50;
-    --font-mono: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
-    --font-ui:   'Syne', 'Segoe UI', system-ui, sans-serif;
-  }
+            :root {
+                --bg: #0f0f13;
+                --surface: #16161d;
+                --surface2: #1e1e28;
+                --border: #2a2a38;
+                --accent: #00e5a0;
+                --accent-dim: rgba(0, 229, 160, 0.12);
+                --accent-glow: rgba(0, 229, 160, 0.35);
+                --red: #ff4d6a;
+                --red-dim: rgba(255, 77, 106, 0.12);
+                --yellow: #ffd166;
+                --text: #e8e8f0;
+                --text-muted: #6b6b85;
+                --text-dim: #3a3a50;
+                --font-mono:
+                    "JetBrains Mono", "Consolas", "Courier New", monospace;
+                --font-ui: "Syne", "Segoe UI", system-ui, sans-serif;
+            }
 
-  body {
-    font-family: var(--font-mono);
-    background: var(--bg);
-    color: var(--text);
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    user-select: none;
-  }
+            body {
+                font-family: var(--font-mono);
+                background: var(--bg);
+                color: var(--text);
+                height: 100vh;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                user-select: none;
+            }
 
-  /* ── 타이틀바 ── */
-  .titlebar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 16px;
-    height: 42px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    -webkit-app-region: drag;
-    flex-shrink: 0;
-  }
-  .titlebar-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .titlebar-icon {
-    width: 22px; height: 22px;
-    background: var(--accent);
-    border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px;
-    color: #000;
-    font-weight: 700;
-  }
-  .titlebar-title {
-    font-family: var(--font-ui);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    color: var(--text);
-  }
-  .titlebar-btns {
-    display: flex;
-    gap: 6px;
-    -webkit-app-region: no-drag;
-  }
-  .titlebar-btn {
-    width: 28px; height: 28px;
-    border: none;
-    border-radius: 7px;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 14px;
-    background: transparent;
-    color: var(--text-muted);
-    transition: background 0.15s, color 0.15s;
-  }
-  .titlebar-btn:hover { background: var(--surface2); color: var(--text); }
-  .titlebar-btn.close:hover { background: var(--red-dim); color: var(--red); }
+            /* ── 타이틀바 ── */
+            .titlebar {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 16px;
+                height: 42px;
+                background: var(--surface);
+                border-bottom: 1px solid var(--border);
+                -webkit-app-region: drag;
+                flex-shrink: 0;
+            }
+            .titlebar-left {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .titlebar-icon {
+                width: 22px;
+                height: 22px;
+                background: var(--accent);
+                border-radius: 6px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 11px;
+                color: #000;
+                font-weight: 700;
+            }
+            .titlebar-title {
+                font-family: var(--font-ui);
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.05em;
+                color: var(--text);
+            }
+            .titlebar-btns {
+                display: flex;
+                gap: 6px;
+                -webkit-app-region: no-drag;
+            }
+            .titlebar-btn {
+                width: 28px;
+                height: 28px;
+                border: none;
+                border-radius: 7px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 14px;
+                background: transparent;
+                color: var(--text-muted);
+                transition:
+                    background 0.15s,
+                    color 0.15s;
+            }
+            .titlebar-btn:hover {
+                background: var(--surface2);
+                color: var(--text);
+            }
+            .titlebar-btn.close:hover {
+                background: var(--red-dim);
+                color: var(--red);
+            }
 
-  /* ── 메인 콘텐츠 ── */
-  .content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .content::-webkit-scrollbar { width: 4px; }
-  .content::-webkit-scrollbar-track { background: transparent; }
-  .content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+            /* ── 메인 콘텐츠 ── */
+            .content {
+                flex: 1;
+                overflow-y: auto;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+            .content::-webkit-scrollbar {
+                width: 4px;
+            }
+            .content::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .content::-webkit-scrollbar-thumb {
+                background: var(--border);
+                border-radius: 2px;
+            }
 
-  /* ── 상태 카드 ── */
-  .status-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 20px;
-    position: relative;
-    overflow: hidden;
-    transition: border-color 0.3s;
-  }
-  .status-card.running {
-    border-color: var(--accent);
-    box-shadow: 0 0 30px rgba(0, 229, 160, 0.08);
-  }
-  .status-card::before {
-    content: '';
-    position: absolute;
-    top: -40px; right: -40px;
-    width: 120px; height: 120px;
-    border-radius: 50%;
-    background: var(--accent-dim);
-    transition: opacity 0.3s;
-    opacity: 0;
-  }
-  .status-card.running::before { opacity: 1; }
+            /* ── 상태 카드 ── */
+            .status-card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 14px;
+                padding: 20px;
+                position: relative;
+                overflow: hidden;
+                transition: border-color 0.3s;
+            }
+            .status-card.running {
+                border-color: var(--accent);
+                box-shadow: 0 0 30px rgba(0, 229, 160, 0.08);
+            }
+            .status-card::before {
+                content: "";
+                position: absolute;
+                top: -40px;
+                right: -40px;
+                width: 120px;
+                height: 120px;
+                border-radius: 50%;
+                background: var(--accent-dim);
+                transition: opacity 0.3s;
+                opacity: 0;
+            }
+            .status-card.running::before {
+                opacity: 1;
+            }
 
-  .status-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 16px;
-  }
-  .status-label {
-    font-family: var(--font-ui);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-  .status-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 500;
-    transition: all 0.3s;
-  }
-  .status-badge.on { background: var(--accent-dim); color: var(--accent); }
-  .status-badge.off { background: var(--red-dim); color: var(--red); }
-  .status-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    animation: pulse 2s ease-in-out infinite;
-  }
-  .status-badge.on .status-dot { background: var(--accent); }
-  .status-badge.off .status-dot { background: var(--red); animation: none; }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.8); }
-  }
+            .status-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 16px;
+            }
+            .status-label {
+                font-family: var(--font-ui);
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+            .status-badge {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 10px;
+                border-radius: 20px;
+                font-size: 11px;
+                font-weight: 500;
+                transition: all 0.3s;
+            }
+            .status-badge.on {
+                background: var(--accent-dim);
+                color: var(--accent);
+            }
+            .status-badge.off {
+                background: var(--red-dim);
+                color: var(--red);
+            }
+            .status-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                animation: pulse 2s ease-in-out infinite;
+            }
+            .status-badge.on .status-dot {
+                background: var(--accent);
+            }
+            .status-badge.off .status-dot {
+                background: var(--red);
+                animation: none;
+            }
+            @keyframes pulse {
+                0%,
+                100% {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+                50% {
+                    opacity: 0.5;
+                    transform: scale(0.8);
+                }
+            }
 
-  .status-url {
-    font-size: 18px;
-    font-weight: 500;
-    color: var(--text);
-    letter-spacing: -0.01em;
-    margin-bottom: 14px;
-    transition: color 0.3s;
-  }
-  .status-url .scheme { color: var(--text-muted); }
-  .status-url .port { color: var(--accent); }
+            .status-url {
+                font-size: 18px;
+                font-weight: 500;
+                color: var(--text);
+                letter-spacing: -0.01em;
+                margin-bottom: 14px;
+                transition: color 0.3s;
+            }
+            .status-url .scheme {
+                color: var(--text-muted);
+            }
+            .status-url .port {
+                color: var(--accent);
+            }
 
-  .status-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .stat-item {
-    background: var(--surface2);
-    border-radius: 10px;
-    padding: 10px 14px;
-  }
-  .stat-label { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; letter-spacing: 0.08em; text-transform: uppercase; }
-  .stat-value { font-size: 20px; font-weight: 600; color: var(--text); }
-  .stat-value.accent { color: var(--accent); }
+            .status-stats {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .stat-item {
+                background: var(--surface2);
+                border-radius: 10px;
+                padding: 10px 14px;
+            }
+            .stat-label {
+                font-size: 10px;
+                color: var(--text-muted);
+                margin-bottom: 4px;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+            .stat-value {
+                font-size: 20px;
+                font-weight: 600;
+                color: var(--text);
+            }
+            .stat-value.accent {
+                color: var(--accent);
+            }
 
-  /* ── 포트 설정 ── */
-  .section-title {
-    font-family: var(--font-ui);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    margin-bottom: 10px;
-  }
+            /* ── 포트 설정 ── */
+            .section-title {
+                font-family: var(--font-ui);
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--text-muted);
+                margin-bottom: 10px;
+            }
 
-  .port-row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .port-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    color: var(--text);
-    font-family: var(--font-mono);
-    font-size: 14px;
-    padding: 10px 14px;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  .port-input:focus { border-color: var(--accent); }
-  .port-input::placeholder { color: var(--text-dim); }
-  /* 포트 유효성 오류 표시 */
-  .port-input.invalid { border-color: var(--red); }
+            .port-row {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .port-input {
+                flex: 1;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                color: var(--text);
+                font-family: var(--font-mono);
+                font-size: 14px;
+                padding: 10px 14px;
+                outline: none;
+                transition: border-color 0.2s;
+            }
+            .port-input:focus {
+                border-color: var(--accent);
+            }
+            .port-input::placeholder {
+                color: var(--text-dim);
+            }
+            /* 포트 유효성 오류 표시 */
+            .port-input.invalid {
+                border-color: var(--red);
+            }
 
-  /* ── 버튼 ── */
-  .btn {
-    border: none;
-    border-radius: 10px;
-    font-family: var(--font-ui);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    padding: 10px 18px;
-    cursor: pointer;
-    transition: all 0.15s;
-    display: flex; align-items: center; gap: 6px;
-    white-space: nowrap;
-  }
-  .btn:active { transform: scale(0.97); }
+            /* ── 버튼 ── */
+            .btn {
+                border: none;
+                border-radius: 10px;
+                font-family: var(--font-ui);
+                font-size: 13px;
+                font-weight: 700;
+                letter-spacing: 0.04em;
+                padding: 10px 18px;
+                cursor: pointer;
+                transition: all 0.15s;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                white-space: nowrap;
+            }
+            .btn:active {
+                transform: scale(0.97);
+            }
 
-  .btn-start {
-    background: var(--accent);
-    color: #000;
-    flex: 1;
-    justify-content: center;
-  }
-  .btn-start:hover { background: #00ffc0; box-shadow: 0 0 20px var(--accent-glow); }
+            .btn-start {
+                background: var(--accent);
+                color: #000;
+                flex: 1;
+                justify-content: center;
+            }
+            .btn-start:hover {
+                background: #00ffc0;
+                box-shadow: 0 0 20px var(--accent-glow);
+            }
 
-  .btn-stop {
-    background: var(--red-dim);
-    color: var(--red);
-    border: 1px solid rgba(255,77,106,0.25);
-    flex: 1;
-    justify-content: center;
-  }
-  .btn-stop:hover { background: rgba(255,77,106,0.2); }
+            .btn-stop {
+                background: var(--red-dim);
+                color: var(--red);
+                border: 1px solid rgba(255, 77, 106, 0.25);
+                flex: 1;
+                justify-content: center;
+            }
+            .btn-stop:hover {
+                background: rgba(255, 77, 106, 0.2);
+            }
 
-  .btn-apply {
-    background: var(--surface2);
-    color: var(--text);
-    border: 1px solid var(--border);
-    padding: 10px 14px;
-  }
-  .btn-apply:hover { border-color: var(--accent); color: var(--accent); }
+            .btn-apply {
+                background: var(--surface2);
+                color: var(--text);
+                border: 1px solid var(--border);
+                padding: 10px 14px;
+            }
+            .btn-apply:hover {
+                border-color: var(--accent);
+                color: var(--accent);
+            }
 
-  /* ── 로그 ── */
-  .log-container {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    overflow: hidden;
-    flex: 1;
-    min-height: 160px;
-    display: flex;
-    flex-direction: column;
-  }
-  .log-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .log-title {
-    font-family: var(--font-ui);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-  }
-  .log-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .btn-copy-log {
-    background: none;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 2px 8px;
-    border-radius: 5px;
-    transition: color 0.15s, border-color 0.15s;
-  }
-  .btn-copy-log:hover { color: var(--text-muted); border-color: var(--text-dim); }
-  .btn-clear {
-    background: none;
-    border: none;
-    color: var(--text-dim);
-    font-family: var(--font-mono);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 2px 8px;
-    border-radius: 5px;
-    transition: color 0.15s;
-  }
-  .btn-clear:hover { color: var(--text-muted); }
+            /* ── 로그 ── */
+            .log-container {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 14px;
+                overflow: hidden;
+                flex: 1;
+                min-height: 160px;
+                display: flex;
+                flex-direction: column;
+            }
+            .log-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 12px 16px;
+                border-bottom: 1px solid var(--border);
+            }
+            .log-title {
+                font-family: var(--font-ui);
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--text-muted);
+            }
+            .log-actions {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+            .btn-copy-log {
+                background: none;
+                border: 1px solid var(--border);
+                color: var(--text-dim);
+                font-family: var(--font-mono);
+                font-size: 11px;
+                cursor: pointer;
+                padding: 2px 8px;
+                border-radius: 5px;
+                transition:
+                    color 0.15s,
+                    border-color 0.15s;
+            }
+            .btn-copy-log:hover {
+                color: var(--text-muted);
+                border-color: var(--text-dim);
+            }
+            .btn-clear {
+                background: none;
+                border: none;
+                color: var(--text-dim);
+                font-family: var(--font-mono);
+                font-size: 11px;
+                cursor: pointer;
+                padding: 2px 8px;
+                border-radius: 5px;
+                transition: color 0.15s;
+            }
+            .btn-clear:hover {
+                color: var(--text-muted);
+            }
 
-  .log-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .log-body::-webkit-scrollbar { width: 3px; }
-  .log-body::-webkit-scrollbar-track { background: transparent; }
-  .log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+            .log-body {
+                flex: 1;
+                overflow-y: auto;
+                padding: 10px;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .log-body::-webkit-scrollbar {
+                width: 3px;
+            }
+            .log-body::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .log-body::-webkit-scrollbar-thumb {
+                background: var(--border);
+                border-radius: 2px;
+            }
 
-  .log-entry {
-    display: flex;
-    gap: 8px;
-    font-size: 11px;
-    line-height: 1.5;
-    padding: 2px 6px;
-    border-radius: 5px;
-    animation: fadeIn 0.2s ease;
-  }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+            .log-entry {
+                display: flex;
+                gap: 8px;
+                font-size: 11px;
+                line-height: 1.5;
+                padding: 2px 6px;
+                border-radius: 5px;
+                animation: fadeIn 0.2s ease;
+            }
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(4px);
+                }
+                to {
+                    opacity: 1;
+                    transform: none;
+                }
+            }
 
-  .log-time { color: var(--text-dim); flex-shrink: 0; }
-  .log-msg { color: var(--text-muted); word-break: break-all; }
+            .log-time {
+                color: var(--text-dim);
+                flex-shrink: 0;
+            }
+            .log-msg {
+                color: var(--text-muted);
+                word-break: break-all;
+            }
 
-  .log-entry.info .log-msg { color: var(--text); }
-  .log-entry.error .log-msg { color: var(--red); }
-  .log-entry.connect .log-msg { color: var(--accent); }
-  .log-entry.disconnect .log-msg { color: var(--yellow); }
-  .log-entry.cmd .log-msg { color: #a0c4ff; }
+            .log-entry.info .log-msg {
+                color: var(--text);
+            }
+            .log-entry.error .log-msg {
+                color: var(--red);
+            }
+            .log-entry.connect .log-msg {
+                color: var(--accent);
+            }
+            .log-entry.disconnect .log-msg {
+                color: var(--yellow);
+            }
+            .log-entry.cmd .log-msg {
+                color: #a0c4ff;
+            }
 
-  .log-empty {
-    color: var(--text-dim);
-    font-size: 12px;
-    text-align: center;
-    padding: 20px;
-  }
+            .log-empty {
+                color: var(--text-dim);
+                font-size: 12px;
+                text-align: center;
+                padding: 20px;
+            }
 
-  /* ── 설정 토글 ── */
-  .settings-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 13px 16px;
-    transition: border-color 0.2s;
-  }
-  .settings-row:hover { border-color: var(--accent); }
+            /* ── 설정 토글 ── */
+            .settings-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 13px 16px;
+                transition: border-color 0.2s;
+            }
+            .settings-row:hover {
+                border-color: var(--accent);
+            }
 
-  .settings-info { display: flex; flex-direction: column; gap: 2px; }
-  .settings-name { font-size: 13px; color: var(--text); }
-  .settings-desc { font-size: 10px; color: var(--text-muted); letter-spacing: 0.03em; }
+            .settings-info {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .settings-name {
+                font-size: 13px;
+                color: var(--text);
+            }
+            .settings-desc {
+                font-size: 10px;
+                color: var(--text-muted);
+                letter-spacing: 0.03em;
+            }
 
-  /* iOS 스타일 토글 스위치 */
-  .toggle {
-    position: relative;
-    width: 44px; height: 24px;
-    flex-shrink: 0;
-  }
-  .toggle input { opacity: 0; width: 0; height: 0; }
-  .toggle-track {
-    position: absolute; inset: 0;
-    background: var(--border);
-    border-radius: 24px;
-    cursor: pointer;
-    transition: background 0.25s;
-  }
-  .toggle-track::after {
-    content: '';
-    position: absolute;
-    left: 3px; top: 3px;
-    width: 18px; height: 18px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    transition: transform 0.25s, background 0.25s;
-  }
-  .toggle input:checked + .toggle-track { background: var(--accent); }
-  .toggle input:checked + .toggle-track::after { transform: translateX(20px); background: #000; }
+            /* iOS 스타일 토글 스위치 */
+            .toggle {
+                position: relative;
+                width: 44px;
+                height: 24px;
+                flex-shrink: 0;
+            }
+            .toggle input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .toggle-track {
+                position: absolute;
+                inset: 0;
+                background: var(--border);
+                border-radius: 24px;
+                cursor: pointer;
+                transition: background 0.25s;
+            }
+            .toggle-track::after {
+                content: "";
+                position: absolute;
+                left: 3px;
+                top: 3px;
+                width: 18px;
+                height: 18px;
+                border-radius: 50%;
+                background: var(--text-muted);
+                transition:
+                    transform 0.25s,
+                    background 0.25s;
+            }
+            .toggle input:checked + .toggle-track {
+                background: var(--accent);
+            }
+            .toggle input:checked + .toggle-track::after {
+                transform: translateX(20px);
+                background: #000;
+            }
 
-  /* ── 하단 ── */
-  .footer {
-    padding: 10px 20px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-shrink: 0;
-  }
-  .footer-info {
-    font-size: 10px;
-    color: var(--text-dim);
-    letter-spacing: 0.05em;
-  }
-  .footer-version {
-    font-size: 10px;
-    color: var(--text-dim);
-  }
-</style>
-</head>
-<body>
+            /* ── 하단 ── */
+            .footer {
+                padding: 10px 20px;
+                border-top: 1px solid var(--border);
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                flex-shrink: 0;
+            }
+            .footer-info {
+                font-size: 10px;
+                color: var(--text-dim);
+                letter-spacing: 0.05em;
+            }
+            .footer-version {
+                font-size: 10px;
+                color: var(--text-dim);
+            }
+        </style>
+    </head>
+    <body>
+        <!-- 타이틀바 -->
+        <div class="titlebar">
+            <div class="titlebar-left">
+                <div class="titlebar-icon">P</div>
+                <span class="titlebar-title">PTZ PROXY</span>
+            </div>
+            <div class="titlebar-btns">
+                <button
+                    class="titlebar-btn"
+                    onclick="minimize()"
+                    title="최소화"
+                >
+                    ─
+                </button>
+                <button
+                    class="titlebar-btn"
+                    onclick="hideToTray()"
+                    title="트레이로 최소화"
+                >
+                    ⊟
+                </button>
+                <button
+                    class="titlebar-btn close"
+                    onclick="hideToTray()"
+                    title="닫기"
+                >
+                    ✕
+                </button>
+            </div>
+        </div>
 
-<!-- 타이틀바 -->
-<div class="titlebar">
-  <div class="titlebar-left">
-    <div class="titlebar-icon">P</div>
-    <span class="titlebar-title">PTZ PROXY</span>
-  </div>
-  <div class="titlebar-btns">
-    <button class="titlebar-btn" onclick="minimize()" title="최소화">─</button>
-    <button class="titlebar-btn" onclick="hideToTray()" title="트레이로 최소화">⊟</button>
-    <button class="titlebar-btn close" onclick="hideToTray()" title="닫기">✕</button>
-  </div>
-</div>
+        <!-- 콘텐츠 -->
+        <div class="content">
+            <!-- 상태 카드 -->
+            <div class="status-card" id="statusCard">
+                <div class="status-header">
+                    <span class="status-label">Server Status</span>
+                    <div class="status-badge off" id="statusBadge">
+                        <span class="status-dot"></span>
+                        <span id="statusText">중지됨</span>
+                    </div>
+                </div>
+                <div class="status-url" id="statusUrl">
+                    <span class="scheme">ws://</span>0.0.0.0:<span
+                        class="port"
+                        id="portDisplay"
+                        >9902</span
+                    >
+                </div>
+                <div class="status-stats">
+                    <div class="stat-item">
+                        <div class="stat-label">클라이언트</div>
+                        <div class="stat-value accent" id="clientCount">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">카메라 연결</div>
+                        <div class="stat-value" id="connCount">0</div>
+                    </div>
+                </div>
+            </div>
 
-<!-- 콘텐츠 -->
-<div class="content">
+            <!-- 포트 설정 -->
+            <div>
+                <div class="section-title">포트 설정</div>
+                <div class="port-row">
+                    <input
+                        class="port-input"
+                        type="number"
+                        id="portInput"
+                        value="9902"
+                        min="1024"
+                        max="65535"
+                        placeholder="9902"
+                        oninput="validatePortInput(this)"
+                    />
+                    <button class="btn btn-apply" onclick="applyPort()">
+                        적용
+                    </button>
+                </div>
+            </div>
 
-  <!-- 상태 카드 -->
-  <div class="status-card" id="statusCard">
-    <div class="status-header">
-      <span class="status-label">Server Status</span>
-      <div class="status-badge off" id="statusBadge">
-        <span class="status-dot"></span>
-        <span id="statusText">중지됨</span>
-      </div>
-    </div>
-    <div class="status-url" id="statusUrl">
-      <span class="scheme">ws://</span>0.0.0.0:<span class="port" id="portDisplay">9902</span>
-    </div>
-    <div class="status-stats">
-      <div class="stat-item">
-        <div class="stat-label">클라이언트</div>
-        <div class="stat-value accent" id="clientCount">0</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">카메라 연결</div>
-        <div class="stat-value" id="connCount">0</div>
-      </div>
-    </div>
-  </div>
+            <!-- 시작 옵션 -->
+            <div>
+                <div class="section-title">시작 옵션</div>
+                <div class="settings-row">
+                    <div class="settings-info">
+                        <span class="settings-name">시작 시 트레이로 실행</span>
+                        <span class="settings-desc"
+                            >앱 실행 시 창 없이 트레이 아이콘으로만 시작</span
+                        >
+                    </div>
+                    <label class="toggle">
+                        <input
+                            type="checkbox"
+                            id="toggleStartToTray"
+                            onchange="onToggleStartToTray(this.checked)"
+                        />
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+            </div>
 
-  <!-- 포트 설정 -->
-  <div>
-    <div class="section-title">포트 설정</div>
-    <div class="port-row">
-      <input class="port-input" type="number" id="portInput" value="9902"
-             min="1024" max="65535" placeholder="9902"
-             oninput="validatePortInput(this)">
-      <button class="btn btn-apply" onclick="applyPort()">적용</button>
-    </div>
-  </div>
+            <!-- 보안 옵션 -->
+            <div>
+                <div class="section-title">보안</div>
+                <div class="settings-row">
+                    <div class="settings-info">
+                        <span class="settings-name">토큰 인증 사용</span>
+                        <span class="settings-desc"
+                            >웹앱에서 발급한 단기 토큰 없이 접속 차단</span
+                        >
+                    </div>
+                    <label class="toggle">
+                        <input
+                            type="checkbox"
+                            id="toggleTokenAuth"
+                            onchange="onToggleTokenAuth(this.checked)"
+                        />
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+                <div id="webAppUrlRow" style="margin-top: 8px; display: none">
+                    <input
+                        class="port-input"
+                        type="text"
+                        id="webAppUrlInput"
+                        placeholder="http://localhost:3000"
+                        style="width: 100%; box-sizing: border-box"
+                        onblur="saveWebAppUrl(this.value)"
+                    />
+                    <div
+                        style="
+                            font-size: 10px;
+                            color: var(--text-muted);
+                            margin-top: 4px;
+                        "
+                    >
+                        토큰 검증 서버 주소 (PTZ Controller 웹앱 URL)
+                    </div>
+                </div>
+            </div>
 
-  <!-- 시작 옵션 -->
-  <div>
-    <div class="section-title">시작 옵션</div>
-    <div class="settings-row">
-      <div class="settings-info">
-        <span class="settings-name">시작 시 트레이로 실행</span>
-        <span class="settings-desc">앱 실행 시 창 없이 트레이 아이콘으로만 시작</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" id="toggleStartToTray" onchange="onToggleStartToTray(this.checked)">
-        <span class="toggle-track"></span>
-      </label>
-    </div>
-  </div>
+            <!-- 제어 버튼 -->
+            <div style="display: flex; gap: 8px">
+                <button
+                    class="btn btn-start"
+                    id="btnStart"
+                    onclick="startServer()"
+                >
+                    ▶ 서버 시작
+                </button>
+                <button
+                    class="btn btn-stop"
+                    id="btnStop"
+                    onclick="stopServer()"
+                    style="display: none"
+                >
+                    ■ 서버 중지
+                </button>
+            </div>
 
-  <!-- 보안 옵션 -->
-  <div>
-    <div class="section-title">보안</div>
-    <div class="settings-row">
-      <div class="settings-info">
-        <span class="settings-name">토큰 인증 사용</span>
-        <span class="settings-desc">웹앱에서 발급한 단기 토큰 없이 접속 차단</span>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" id="toggleTokenAuth" onchange="onToggleTokenAuth(this.checked)">
-        <span class="toggle-track"></span>
-      </label>
-    </div>
-    <div id="webAppUrlRow" style="margin-top:8px; display:none;">
-      <input class="port-input" type="text" id="webAppUrlInput"
-             placeholder="http://localhost:3000"
-             style="width:100%; box-sizing:border-box;"
-             onblur="saveWebAppUrl(this.value)">
-      <div style="font-size:10px; color:var(--text-muted); margin-top:4px;">
-        토큰 검증 서버 주소 (PTZ Controller 웹앱 URL)
-      </div>
-    </div>
-  </div>
+            <!-- 로그 -->
+            <div class="log-container">
+                <div class="log-header">
+                    <span class="log-title">Log</span>
+                    <div class="log-actions">
+                        <button
+                            class="btn-copy-log"
+                            onclick="copyLog()"
+                            title="로그 클립보드 복사"
+                        >
+                            📋 복사
+                        </button>
+                        <button class="btn-clear" onclick="clearLog()">
+                            지우기
+                        </button>
+                    </div>
+                </div>
+                <div class="log-body" id="logBody">
+                    <div class="log-empty" id="logEmpty">로그가 없습니다</div>
+                </div>
+            </div>
+        </div>
 
-  <!-- 제어 버튼 -->
-  <div style="display:flex; gap:8px;">
-    <button class="btn btn-start" id="btnStart" onclick="startServer()">
-      ▶ 서버 시작
-    </button>
-    <button class="btn btn-stop" id="btnStop" onclick="stopServer()" style="display:none;">
-      ■ 서버 중지
-    </button>
-  </div>
+        <!-- 하단 -->
+        <div class="footer">
+            <span class="footer-info">PelcoD / Ujin 프로토콜 지원</span>
+            <span class="footer-version">v1.0.1</span>
+        </div>
 
-  <!-- 로그 -->
-  <div class="log-container">
-    <div class="log-header">
-      <span class="log-title">Log</span>
-      <div class="log-actions">
-        <button class="btn-copy-log" onclick="copyLog()" title="로그 클립보드 복사">📋 복사</button>
-        <button class="btn-clear" onclick="clearLog()">지우기</button>
-      </div>
-    </div>
-    <div class="log-body" id="logBody">
-      <div class="log-empty" id="logEmpty">로그가 없습니다</div>
-    </div>
-  </div>
+        <script>
+            // ─────────────────────────────────────────────────────────────
+            // P-02 수정: require('electron') 직접 호출 제거
+            //   nodeIntegration:false + contextIsolation:true 환경에서
+            //   require() 는 존재하지 않음 → window.electronAPI 로 모두 교체
+            // P-03 수정: 누락된 IPC 채널을 preload.js 경유로 호출
+            // P-33 수정: 서버 상태 자동 갱신 및 로그 기능 추가
+            // ─────────────────────────────────────────────────────────────
+            const api = window.electronAPI;
+            let serverRunning = false;
+            let statusUpdateInterval = null;
 
-</div>
+            // ── 윈도우 제어
+            function minimize() {
+                api.minimizeWindow();
+            }
+            function hideToTray() {
+                api.hideWindow();
+            }
 
-<!-- 하단 -->
-<div class="footer">
-  <span class="footer-info">PelcoD / Ujin 프로토콜 지원</span>
-  <span class="footer-version">v1.0.1</span>
-</div>
+            // ── 설정 토글
+            function onToggleStartToTray(checked) {
+                api.saveSettings({ startToTray: checked });
+            }
 
-<script>
-// ─────────────────────────────────────────────────────────────
-// P-02 수정: require('electron') 직접 호출 제거
-//   nodeIntegration:false + contextIsolation:true 환경에서
-//   require() 는 존재하지 않음 → window.electronAPI 로 모두 교체
-// P-03 수정: 누락된 IPC 채널을 preload.js 경유로 호출
-// ─────────────────────────────────────────────────────────────
+            function onToggleTokenAuth(checked) {
+                document.getElementById("webAppUrlRow").style.display = checked
+                    ? "block"
+                    : "none";
+                api.saveSettings({ tokenAuth: checked });
+            }
 
-const api = window.electronAPI;
+            function saveWebAppUrl(value) {
+                api.saveSettings({ webAppUrl: value.trim() });
+            }
 
-let serverRunning = false;
+            // ── 포트 입력 유효성
+            function validatePortInput(input) {
+                const v = parseInt(input.value);
+                if (v >= 1024 && v <= 65535) {
+                    input.classList.remove("invalid");
+                } else {
+                    input.classList.add("invalid");
+                }
+            }
 
-// ── 윈도우 제어 ──────────────────────────────────────────────
-function minimize()   { api.minimizeWindow(); }
-function hideToTray() { api.hideWindow(); }  // P-19 수정: hide 의도 명확화
+            // ── 설정 반영
+            function applySettings(s) {
+                const toggle = document.getElementById("toggleStartToTray");
+                if (toggle && s.startToTray !== undefined)
+                    toggle.checked = !!s.startToTray;
+                const portInput = document.getElementById("portInput");
+                if (portInput && s.port) {
+                    portInput.value = s.port;
+                    validatePortInput(portInput);
+                }
+                const tokenToggle = document.getElementById("toggleTokenAuth");
+                if (tokenToggle && s.tokenAuth !== undefined) {
+                    tokenToggle.checked = !!s.tokenAuth;
+                    document.getElementById("webAppUrlRow").style.display =
+                        s.tokenAuth ? "block" : "none";
+                }
+                const urlInput = document.getElementById("webAppUrlInput");
+                if (urlInput && s.webAppUrl !== undefined)
+                    urlInput.value = s.webAppUrl;
+            }
 
-// ── 설정 토글 ────────────────────────────────────────────────
-function onToggleStartToTray(checked) {
-  api.saveSettings({ startToTray: checked });
-}
+            // ── P-33: 서버 제어 개선
+            function startServer() {
+                const port =
+                    parseInt(document.getElementById("portInput").value) ||
+                    9902;
+                console.log(`[UI] 서버 시작 요청: 포트 ${port}`);
+                api.startServer(port);
 
-function onToggleTokenAuth(checked) {
-  document.getElementById('webAppUrlRow').style.display = checked ? 'block' : 'none';
-  api.saveSettings({ tokenAuth: checked });
-}
+                // 1초 후 상태 갱신
+                setTimeout(() => api.requestStatus(), 1000);
+            }
 
-function saveWebAppUrl(value) {
-  api.saveSettings({ webAppUrl: value.trim() });
-}
+            function stopServer() {
+                console.log(`[UI] 서버 중지 요청`);
+                api.stopServer();
 
-// ── 포트 입력 유효성 ──────────────────────────────────────────
-function validatePortInput(input) {
-  const v = parseInt(input.value);
-  if (v >= 1024 && v <= 65535) {
-    input.classList.remove('invalid');
-  } else {
-    input.classList.add('invalid');
-  }
-}
+                // 즉시 상태 갱신
+                api.requestStatus();
+            }
 
-// ── 설정 반영 ────────────────────────────────────────────────
-function applySettings(s) {
-  const toggle = document.getElementById('toggleStartToTray');
-  if (toggle && s.startToTray !== undefined) toggle.checked = !!s.startToTray;
-  const portInput = document.getElementById('portInput');
-  if (portInput && s.port) { portInput.value = s.port; validatePortInput(portInput); }
-  const tokenToggle = document.getElementById('toggleTokenAuth');
-  if (tokenToggle && s.tokenAuth !== undefined) {
-    tokenToggle.checked = !!s.tokenAuth;
-    document.getElementById('webAppUrlRow').style.display = s.tokenAuth ? 'block' : 'none';
-  }
-  const urlInput = document.getElementById('webAppUrlInput');
-  if (urlInput && s.webAppUrl !== undefined) urlInput.value = s.webAppUrl;
-}
+            function applyPort() {
+                const port =
+                    parseInt(document.getElementById("portInput").value) ||
+                    9902;
+                if (port < 1024 || port > 65535) {
+                    document
+                        .getElementById("portInput")
+                        .classList.add("invalid");
+                    return;
+                }
+                api.changePort(port);
+            }
 
-// ── 서버 제어 ────────────────────────────────────────────────
-function startServer() {
-  const port = parseInt(document.getElementById('portInput').value) || 9902;
-  api.startServer(port);
-}
+            // ── 로그 관련
+            function clearLog() {
+                document.getElementById("logBody").innerHTML =
+                    '<div class="log-empty" id="logEmpty">로그가 없습니다</div>';
+            }
 
-function stopServer() {
-  api.stopServer();
-}
+            function copyLog() {
+                const logBody = document.getElementById("logBody");
+                const lines = Array.from(
+                    logBody.querySelectorAll(".log-entry"),
+                ).map((el) => {
+                    const time =
+                        el.querySelector(".log-time")?.textContent || "";
+                    const msg = el.querySelector(".log-msg")?.textContent || "";
+                    return `${time} ${msg}`;
+                });
+                if (lines.length === 0) return;
+                navigator.clipboard
+                    .writeText(lines.join("\n"))
+                    .then(() => {
+                        const btn = document.querySelector(".btn-copy-log");
+                        const orig = btn.textContent;
+                        btn.textContent = "✔ 복사됨";
+                        btn.style.color = "#4ade80";
+                        setTimeout(() => {
+                            btn.textContent = orig;
+                            btn.style.color = "";
+                        }, 1500);
+                    })
+                    .catch(() => {
+                        const ta = document.createElement("textarea");
+                        ta.value = lines.join("\n");
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(ta);
+                    });
+            }
 
-function applyPort() {
-  const port = parseInt(document.getElementById('portInput').value) || 9902;
-  if (port < 1024 || port > 65535) {
-    document.getElementById('portInput').classList.add('invalid');
-    return;
-  }
-  api.changePort(port);
-}
+            function addLogEntry(entry) {
+                const empty = document.getElementById("logEmpty");
+                if (empty) empty.remove();
 
-// ── 로그 관련 ────────────────────────────────────────────────
-function clearLog() {
-  document.getElementById('logBody').innerHTML = '<div class="log-empty" id="logEmpty">로그가 없습니다</div>';
-}
+                const div = document.createElement("div");
+                div.className = `log-entry ${entry.type}`;
+                div.innerHTML = `<span class="log-time">${entry.time}</span><span class="log-msg">${escapeHtml(entry.message)}</span>`;
 
-function copyLog() {
-  const logBody = document.getElementById('logBody');
-  const lines   = Array.from(logBody.querySelectorAll('.log-entry')).map(el => {
-    const time = el.querySelector('.log-time')?.textContent || '';
-    const msg  = el.querySelector('.log-msg')?.textContent  || '';
-    return `${time} ${msg}`;
-  });
-  if (lines.length === 0) return;
-  navigator.clipboard.writeText(lines.join('\n')).then(() => {
-    const btn = document.querySelector('.btn-copy-log');
-    const orig = btn.textContent;
-    btn.textContent = '✔ 복사됨';
-    btn.style.color = '#4ade80';
-    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
-  }).catch(() => {
-    const ta = document.createElement('textarea');
-    ta.value = lines.join('\n');
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  });
-}
+                const logBody = document.getElementById("logBody");
+                logBody.appendChild(div);
 
-function addLogEntry(entry) {
-  const empty = document.getElementById('logEmpty');
-  if (empty) empty.remove();
+                while (logBody.children.length > 200) {
+                    logBody.removeChild(logBody.firstChild);
+                }
 
-  const div = document.createElement('div');
-  div.className = `log-entry ${entry.type}`;
-  div.innerHTML = `<span class="log-time">${entry.time}</span><span class="log-msg">${escapeHtml(entry.message)}</span>`;
+                logBody.scrollTop = logBody.scrollHeight;
+            }
 
-  const logBody = document.getElementById('logBody');
-  logBody.appendChild(div);
+            function escapeHtml(text) {
+                return String(text)
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;");
+            }
 
-  // 최대 200줄 유지
-  while (logBody.children.length > 200) {
-    logBody.removeChild(logBody.firstChild);
-  }
+            // ── P-33: UI 업데이트 개선
+            function updateUI(status) {
+                serverRunning = status.running;
+                const card = document.getElementById("statusCard");
+                const badge = document.getElementById("statusBadge");
+                const statusText = document.getElementById("statusText");
+                const portDisplay = document.getElementById("portDisplay");
+                const btnStart = document.getElementById("btnStart");
+                const btnStop = document.getElementById("btnStop");
 
-  logBody.scrollTop = logBody.scrollHeight;
-}
+                portDisplay.textContent = status.port;
+                document.getElementById("portInput").value = status.port;
+                document.getElementById("clientCount").textContent =
+                    status.clients;
+                document.getElementById("connCount").textContent =
+                    status.connections;
 
-function escapeHtml(text) {
-  return String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
+                if (status.settings) {
+                    applySettings(status.settings);
+                } else {
+                    applySettings(status);
+                }
 
-// ── UI 업데이트 ──────────────────────────────────────────────
-function updateUI(status) {
-  serverRunning = status.running;
-  const card        = document.getElementById('statusCard');
-  const badge       = document.getElementById('statusBadge');
-  const statusText  = document.getElementById('statusText');
-  const portDisplay = document.getElementById('portDisplay');
-  const btnStart    = document.getElementById('btnStart');
-  const btnStop     = document.getElementById('btnStop');
+                if (status.running) {
+                    card.classList.add("running");
+                    badge.className = "status-badge on";
+                    statusText.textContent = "실행 중";
+                    btnStart.style.display = "none";
+                    btnStop.style.display = "flex";
 
-  portDisplay.textContent = status.port;
-  document.getElementById('portInput').value = status.port;
-  document.getElementById('clientCount').textContent  = status.clients;
-  document.getElementById('connCount').textContent    = status.connections;
+                    // 서버 실행 중일 때 5초마다 상태 갱신
+                    if (!statusUpdateInterval) {
+                        statusUpdateInterval = setInterval(() => {
+                            api.requestStatus();
+                        }, 5000);
+                    }
+                } else {
+                    card.classList.remove("running");
+                    badge.className = "status-badge off";
+                    statusText.textContent = "중지됨";
+                    btnStart.style.display = "flex";
+                    btnStop.style.display = "none";
 
-  // status.settings 유무 양쪽 모두 방어 처리
-  if (status.settings) {
-    applySettings(status.settings);
-  } else {
-    applySettings(status);
-  }
+                    // 서버 중지 시 갱신 중단
+                    if (statusUpdateInterval) {
+                        clearInterval(statusUpdateInterval);
+                        statusUpdateInterval = null;
+                    }
+                }
+            }
 
-  if (status.running) {
-    card.classList.add('running');
-    badge.className = 'status-badge on';
-    statusText.textContent = '실행 중';
-    btnStart.style.display = 'none';
-    btnStop.style.display  = 'flex';
-  } else {
-    card.classList.remove('running');
-    badge.className = 'status-badge off';
-    statusText.textContent = '중지됨';
-    btnStart.style.display = 'flex';
-    btnStop.style.display  = 'none';
-  }
-}
+            // ── 앱 버전 표시
+            api.getAppVersion().then((ver) => {
+                const el = document.querySelector(".footer-version");
+                if (el) el.textContent = "v" + ver;
+            });
 
-// ── 앱 버전 표시 (P-23 수정: 하드코딩 제거) ──────────────────
-api.getAppVersion().then(ver => {
-  const el = document.querySelector('.footer-version');
-  if (el) el.textContent = 'v' + ver;
-});
+            // ── P-33: IPC 이벤트 리스너 (자동 갱신)
+            api.onStatus((_, status) => {
+                console.log("[UI] 상태 업데이트:", status);
+                updateUI(status);
+            });
 
-// ── IPC 이벤트 리스너 등록 ────────────────────────────────────
-// P-02/03 수정: ipcRenderer.on → api.onStatus/onLog/onSettingsChanged 경유
-api.onStatus((_, status)   => updateUI(status));
-api.onLog((_, entry)       => addLogEntry(entry));
-api.onSettingsChanged((_, s) => applySettings(s));
+            api.onLog((_, entry) => addLogEntry(entry));
 
-// 초기 상태 요청
-api.requestStatus();
-</script>
-</body>
+            api.onSettingsChanged((_, s) => {
+                console.log("[UI] 설정 변경:", s);
+                applySettings(s);
+            });
+
+            // 초기 상태 요청
+            console.log("[UI] 초기 상태 요청");
+            api.requestStatus();
+
+            // 페이지 언로드 시 갱신 타이머 정리
+            window.addEventListener("beforeunload", () => {
+                if (statusUpdateInterval) {
+                    clearInterval(statusUpdateInterval);
+                }
+            });
+        </script>
+    </body>
 </html>
