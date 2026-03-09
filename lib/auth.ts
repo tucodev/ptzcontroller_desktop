@@ -7,6 +7,10 @@
  * - 온라인 실패 → 오프라인 DB 폴백
  */
 
+// Desktop 감지
+// 환경 변수로 구분: process.env.PTZ_DESKTOP_MODE === 'true'
+const IS_DESKTOP = process.env.PTZ_DESKTOP_MODE === "true";
+
 import bcrypt from "bcryptjs";
 import {
     getOfflineUser,

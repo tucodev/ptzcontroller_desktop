@@ -498,6 +498,7 @@ async function startNextServer() {
             envVars.NEXTAUTH_URL || `http://${serverHostname}:${PORT}`,
         PTZ_DATA_DIR: dataDir,
         PTZ_FORCE_SHARED: "true",
+        PTZ_DESKTOP_MODE: "true", // ✅ 추가: Desktop 모드 활성화
         ...(enginePath ? { PRISMA_QUERY_ENGINE_LIBRARY: enginePath } : {}),
     };
 
@@ -1085,6 +1086,37 @@ ipcMain.on("upload-license-file", async (event, { filename, content }) => {
     event.sender.send("license-uploaded", {
         success: saved,
         message: saved ? "License uploaded" : "Upload failed",
+    });
+});
+
+// ── License Verification IPC (Desktop only)
+ipcMain.on("verify-license-for-offline-mode", async (event) => {
+    console.log("[IPC] verify-license-for-offline-mode");
+
+    const offlinePath = getLicenseFilePath(OFFLINE_LICENSE_FILE);
+    const hasFile = fs.existsSync(offlinePath);
+
+    if (!hasFile) {
+        console.warn("[Desktop] License file not found");
+        event.sender.send("license-verification-result", {
+            valid: false,
+            hasFile: false,
+            message: "No license file - please request one",
+        });
+        return;
+    }
+
+    const isValid = isLicenseValid(offlinePath);
+    console.log(
+        `[Desktop] License verification: ${isValid ? "valid" : "invalid"}`,
+    );
+
+    event.sender.send("license-verification-result", {
+        valid: isValid,
+        hasFile: true,
+        message: isValid
+            ? "License valid - offline mode allowed"
+            : "License expired or invalid - please renew",
     });
 });
 
