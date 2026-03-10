@@ -19,6 +19,7 @@ import {
     updateOfflineModeStatus,
     initOfflineDb,
 } from "./offline-db";
+import { verifyLicenseFile } from "./license";
 
 // 앱 시작 시 오프라인 DB 초기화
 try {
@@ -118,6 +119,23 @@ export async function authorize(credentials: any) {
         );
 
         if (offlineUser) {
+            // 항목7: 오프라인 모드 시 라이선스 검증 (필수)
+            // 온라인 로그인 실패 후 오프라인 SQLite 인증을 통과해도
+            // 유효한 라이선스가 없으면 접근 차단
+            const licenseResult = verifyLicenseFile();
+            if (!licenseResult.valid) {
+                console.warn(
+                    "[Auth] ❌ 오프라인 라이선스 무효 —",
+                    licenseResult.reason,
+                );
+                console.warn(
+                    "[Auth] ❌ 오프라인 로그인 차단:",
+                    credentials.email,
+                    "— 유효한 라이선스가 필요합니다.",
+                );
+                return null;
+            }
+
             console.log("[Auth] ✅ 오프라인 로그인 성공:", credentials.email);
 
             // 오프라인 모드 상태 업데이트

@@ -25,6 +25,7 @@ const fs = require("fs");
 const cp = require("child_process");
 const http = require("http");
 const WebSocket = require("ws");
+const crypto = require("crypto");
 
 // ════════════════════════════════════════════════════════════════
 // STARTUP CHECKS
@@ -168,9 +169,190 @@ function saveSettings(settings) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// HW ID 수집 (라이선스 검증용 — ptzcontroller_admin/lib/license.ts 동일 로직)
+// ════════════════════════════════════════════════════════════════
+
+function safeSpawnLic(cmd, args, timeout) {
+    try {
+        const result = cp.spawnSync(cmd, args, {
+            timeout: timeout || 3000,
+            encoding: "utf8",
+            windowsHide: true,
+        });
+        if (result.status === 0 && typeof result.stdout === "string") {
+            return result.stdout.trim();
+        }
+    } catch (e) {
+        console.warn("[LicHW] spawnSync failed:", cmd, e.message);
+    }
+    return null;
+}
+
+function getLicOsId() {
+    const platform = process.platform;
+    let osId = "";
+    try {
+        if (platform === "win32") {
+            const result = cp.spawnSync(
+                "reg",
+                ["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"],
+                { timeout: 3000, encoding: "utf8", windowsHide: true }
+            );
+            if (result.status === 0 && typeof result.stdout === "string") {
+                const match = result.stdout.match(/MachineGuid\s+REG_SZ\s+(.+)/);
+                if (match) osId = match[1].trim();
+            }
+        } else if (platform === "darwin") {
+            const out = safeSpawnLic("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"]);
+            if (out) {
+                const match = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/);
+                if (match) osId = match[1];
+            }
+        } else {
+            // Linux
+            try {
+                if (fs.existsSync("/etc/machine-id"))
+                    osId = fs.readFileSync("/etc/machine-id", "utf8").trim();
+            } catch (e) {}
+            if (!osId) {
+                try {
+                    if (fs.existsSync("/var/lib/dbus/machine-id"))
+                        osId = fs.readFileSync("/var/lib/dbus/machine-id", "utf8").trim();
+                } catch (e) {}
+            }
+        }
+    } catch (e) {
+        console.warn("[LicHW] OS ID 추출 실패:", e.message);
+    }
+    // fallback
+    const os = require("os");
+    return osId || `${platform}-${os.arch()}-${os.totalmem()}`;
+}
+
+/** sha256(osId + '||' + hwKey).slice(0,16).toUpperCase() — license.ts 동일 */
+function makeLicHwId(osId, hwKey) {
+    return crypto
+        .createHash("sha256")
+        .update(osId + "||" + hwKey)
+        .digest("hex")
+        .slice(0, 16)
+        .toUpperCase();
+}
+
+/**
+ * 현재 PC의 MachineID 목록 동기 수집 (license.ts getAllMachineIds 동일 알고리즘)
+ * 1) NIC MAC (platform별)  2) Windows NIC<2 → HDD serial  3) fallback
+ */
+function getAllMachineIdsSync() {
+    const platform = process.platform;
+    const osId = getLicOsId();
+    const macs = [];
+    const ids = [];
+
+    try {
+        if (platform === "win32") {
+            // Windows 8+: PowerShell Get-NetAdapter -Physical (비활성 포함)
+            const psOut = safeSpawnLic(
+                "powershell",
+                ["-NoProfile", "-Command",
+                 "Get-NetAdapter -Physical | Select-Object -ExpandProperty MacAddress"],
+                5000
+            );
+            if (psOut) {
+                for (const line of psOut.split(/\r?\n/)) {
+                    const mac = line.trim().toLowerCase();
+                    if (/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(mac) && mac !== "00:00:00:00:00:00")
+                        macs.push(mac);
+                }
+            }
+            // fallback: getmac (Windows 7 / PS 실패 시)
+            if (macs.length === 0) {
+                const gmOut = safeSpawnLic("getmac", []);
+                if (gmOut) {
+                    const matches = gmOut.match(/([0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2}/g);
+                    if (matches) {
+                        for (const m of matches) {
+                            const mac = m.replace(/-/g, ":").toLowerCase();
+                            if (mac !== "00:00:00:00:00:00") macs.push(mac);
+                        }
+                    }
+                }
+            }
+        } else if (platform === "darwin") {
+            const out = safeSpawnLic("ifconfig", []);
+            if (out) {
+                const matches = out.match(
+                    /ether\s+([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2})/gi
+                );
+                if (matches) {
+                    for (const m of matches) {
+                        const mac = m.split(/\s+/)[1]?.toLowerCase();
+                        if (mac && mac !== "00:00:00:00:00:00") macs.push(mac);
+                    }
+                }
+            }
+        } else {
+            // Linux: /sys/class/net
+            const netDir = "/sys/class/net";
+            if (fs.existsSync(netDir)) {
+                for (const iface of fs.readdirSync(netDir)) {
+                    if (iface === "lo" || iface.startsWith("vnet") || iface.startsWith("docker"))
+                        continue;
+                    try {
+                        const addrPath = `${netDir}/${iface}/address`;
+                        if (fs.existsSync(addrPath)) {
+                            const mac = fs.readFileSync(addrPath, "utf8").trim().toLowerCase();
+                            if (mac && mac !== "00:00:00:00:00:00" && !mac.startsWith("02:"))
+                                macs.push(mac);
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("[LicHW] MAC 수집 실패:", e.message);
+    }
+
+    for (const mac of [...new Set(macs)]) {
+        ids.push(makeLicHwId(osId, mac));
+    }
+
+    // Windows: NIC 부족 시 HDD Volume Serial 보완 (license.ts 동일)
+    if (platform === "win32" && ids.length < 2) {
+        const wmicOut = safeSpawnLic("wmic", [
+            "logicaldisk", "get", "volumeserialnumber", "/format:table",
+        ]);
+        if (wmicOut) {
+            const serials = wmicOut.match(/[0-9A-Fa-f]{8}/g);
+            if (serials) {
+                for (const serial of [...new Set(serials)]) {
+                    ids.push(makeLicHwId(osId, serial));
+                }
+            }
+        }
+    }
+
+    // fallback
+    if (ids.length === 0) {
+        ids.push(makeLicHwId(osId, "NO_HW_FALLBACK"));
+    }
+
+    console.log(`[LicHW] getAllMachineIdsSync: ${ids.length} IDs on ${platform}`);
+    return ids;
+}
+
+// ════════════════════════════════════════════════════════════════
 // LICENSE MANAGEMENT
 // ════════════════════════════════════════════════════════════════
 
+/**
+ * 라이선스 파일 완전 검증 (license.ts verifyLicense 동일 알고리즘)
+ * 1. Base64 디코드 + JSON 파싱
+ * 2. HMAC-SHA256 서명 검증
+ * 3. Product ID 확인 (PTZ-OFFLINE)
+ * 4. MachineID 배열 매칭 (현재 PC HW ID 중 하나라도 일치)
+ * 5. 만료일 확인
+ */
 function isLicenseValid(filePath) {
     try {
         if (!fs.existsSync(filePath)) {
@@ -179,30 +361,56 @@ function isLicenseValid(filePath) {
 
         const content = fs.readFileSync(filePath, "utf8").trim();
 
-        // Base64 decode
-        let licenseObj;
+        // ① Base64 decode + JSON parse
+        let lic;
         try {
             const decoded = Buffer.from(content, "base64").toString("utf8");
-            licenseObj = JSON.parse(decoded);
+            lic = JSON.parse(decoded);
         } catch (e) {
             console.error("[Desktop] License decode error:", e.message);
             return false;
         }
 
-        // Check required fields
-        if (!licenseObj.machineId || !licenseObj.expiresAt) {
-            console.warn("[Desktop] License missing required fields");
+        const { sig, ...payload } = lic;
+
+        // ② HMAC-SHA256 서명 검증 (license.ts MASTER_SECRET 동일)
+        const secret = process.env.LICENSE_SECRET || "TYCHE-PTZ-LICENSE-SECRET-2024";
+        const expected = crypto
+            .createHmac("sha256", secret)
+            .update(JSON.stringify(payload))
+            .digest("hex");
+        if (sig !== expected) {
+            console.warn("[Desktop] ❌ License signature invalid");
             return false;
         }
 
-        // Check expiry
-        const expiryDate = new Date(licenseObj.expiresAt);
+        // ③ Product 확인
+        if (payload.product !== "PTZ-OFFLINE") {
+            console.warn("[Desktop] ❌ License product mismatch:", payload.product);
+            return false;
+        }
+
+        // ④ MachineID 검증 (배열 매칭 — 하나라도 일치하면 OK)
+        const currentIds = getAllMachineIdsSync();
+        const licenseIds = payload.machineIds?.length ? payload.machineIds : [payload.machineId];
+        const matchedIds = currentIds.filter((id) => licenseIds.includes(id));
+        if (matchedIds.length === 0) {
+            console.warn(
+                `[Desktop] ❌ License machine ID mismatch. ` +
+                `Current IDs: ${currentIds.length}, License IDs: ${licenseIds.length}, Matched: 0`
+            );
+            return false;
+        }
+
+        // ⑤ 만료일 확인
+        const expiryDate = new Date(payload.expiresAt);
         if (expiryDate < new Date()) {
-            console.warn("[Desktop] License expired:", licenseObj.expiresAt);
+            console.warn("[Desktop] ❌ License expired:", payload.expiresAt);
             return false;
         }
 
-        console.log("[Desktop] License valid until:", licenseObj.expiresAt);
+        console.log("[Desktop] ✅ License valid until:", payload.expiresAt,
+            `(matched: ${matchedIds[0]})`);
         return true;
     } catch (e) {
         console.error("[Desktop] License validation error:", e.message);
@@ -943,6 +1151,47 @@ function showFatalError(msg) {
     quitApp();
 }
 
+/**
+ * 시작 시 오프라인 라이선스 점검 (항목5)
+ * - 라이선스가 없거나 만료된 경우 경고 다이얼로그 표시
+ * - 온라인 모드에서는 무시 가능 ("계속" 선택)
+ * - 오프라인 모드에서는 실제 접근 차단은 auth.ts에서 처리 (항목7)
+ */
+async function checkLicenseOnStartup() {
+    const offlinePath = getLicenseFilePath(OFFLINE_LICENSE_FILE);
+    const licValid = isLicenseValid(offlinePath);
+
+    if (licValid) {
+        console.log("[Desktop] ✅ Startup license check: valid");
+        return;
+    }
+
+    const reason = !fs.existsSync(offlinePath)
+        ? "오프라인 라이선스 파일이 없습니다."
+        : "오프라인 라이선스가 만료되었거나 유효하지 않습니다.";
+
+    console.warn("[Desktop] ⚠️ Startup license check: invalid —", reason);
+
+    try {
+        const { response } = await dialog.showMessageBox({
+            type: "warning",
+            title: "PTZ Controller — 라이선스 확인",
+            message: reason,
+            detail:
+                "온라인 모드(인터넷 연결)에서는 이 경고를 무시하고 계속 사용할 수 있습니다.\n" +
+                "오프라인으로 사용하려면 설정 화면(⚙)에서 라이선스를 발급받으세요.",
+            buttons: ["계속", "앱 종료"],
+            defaultId: 0,
+            cancelId: 1,
+        });
+        if (response === 1) {
+            quitApp();
+        }
+    } catch (e) {
+        console.warn("[Desktop] License startup dialog error:", e.message);
+    }
+}
+
 // ════════════════════════════════════════════════════════════════
 // IPC HANDLERS
 // ════════════════════════════════════════════════════════════════
@@ -1137,6 +1386,10 @@ app.whenReady().then(async () => {
         await waitForServer(resolvedHostname);
         console.log(`[Desktop] Ready → http://localhost:${PORT}`);
         updateTrayMenu();
+
+        // 항목5: 시작 시 오프라인 라이선스 사전 검증 (경고만, 비블로킹)
+        await checkLicenseOnStartup();
+
         createWindow();
     } catch (err) {
         showFatalError(`Failed to start server\n\n${err.message}`);
