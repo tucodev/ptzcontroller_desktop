@@ -19,6 +19,7 @@ const {
     shell,
     ipcMain,
     dialog,
+    session,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -279,7 +280,7 @@ function getAllMachineIdsSync() {
                 }
             }
         } else if (platform === "darwin") {
-            const out = safeSpawnLic("ifconfig", []);
+            const out = safeSpawnLic("ifconfig", ["-a"]); // -a: 비활성 인터페이스 포함
             if (out) {
                 const matches = out.match(
                     /ether\s+([0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2})/gi
@@ -1386,6 +1387,16 @@ app.whenReady().then(async () => {
         await waitForServer(resolvedHostname);
         console.log(`[Desktop] Ready → http://localhost:${PORT}`);
         updateTrayMenu();
+
+        // 재실행마다 로그인 강제: 세션/쿠키 초기화
+        try {
+            await session.defaultSession.clearStorageData({
+                storages: ["cookies", "sessionstorage", "localstorage"],
+            });
+            console.log("[Desktop] Session cleared — login required on every start");
+        } catch (e) {
+            console.warn("[Desktop] Session clear failed (non-critical):", e.message);
+        }
 
         // 항목5: 시작 시 오프라인 라이선스 사전 검증 (경고만, 비블로킹)
         await checkLicenseOnStartup();
