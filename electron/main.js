@@ -261,7 +261,8 @@ function getAllMachineIdsSync() {
             );
             if (psOut) {
                 for (const line of psOut.split(/\r?\n/)) {
-                    const mac = line.trim().toLowerCase();
+                    // Get-NetAdapter returns XX-XX-XX-XX-XX-XX (dashes) → normalize to colons
+                    const mac = line.trim().toLowerCase().replace(/-/g, ":");
                     if (/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(mac) && mac !== "00:00:00:00:00:00")
                         macs.push(mac);
                 }
@@ -404,8 +405,13 @@ function isLicenseValid(filePath) {
         }
 
         // ⑤ 만료일 확인
-        const expiryDate = new Date(payload.expiresAt);
-        if (expiryDate < new Date()) {
+        // 날짜만 있는 "YYYY-MM-DD" 형식이면 해당일 23:59:59 UTC로 처리
+        // (그래야 마지막 날 하루 종일 사용 가능)
+        const expiresAtStr = String(payload.expiresAt || '');
+        const expiryDate = /^\d{4}-\d{2}-\d{2}$/.test(expiresAtStr)
+            ? new Date(expiresAtStr + 'T23:59:59.999Z')
+            : new Date(expiresAtStr);
+        if (isNaN(expiryDate.getTime()) || expiryDate < new Date()) {
             console.warn("[Desktop] ❌ License expired:", payload.expiresAt);
             return false;
         }
@@ -691,6 +697,12 @@ async function startNextServer() {
 
     const nodeExe = getNodeExecutable();
     const envVars = parseEnv(path.join(standalonePath, ".env"));
+
+    // ⚠️ parseEnv()는 자식 프로세스(Next.js)용 serverEnv 빌드에만 사용된다.
+    // Electron 메인 프로세스의 process.env 에는 자동으로 적용되지 않으므로,
+    // isLicenseValid() 등 메인 프로세스에서 직접 읽는 변수를 여기서 주입한다.
+    if (envVars.LICENSE_SECRET) process.env.LICENSE_SECRET = envVars.LICENSE_SECRET;
+
     const enginePath = findPrismaEngine(standalonePath);
     const dataDir = getSharedDataDir();
 
@@ -1052,6 +1064,9 @@ function createWindow() {
     }
     if (!fs.existsSync(iconPath)) iconPath = undefined;
 
+    // 저장된 테마를 preload에 전달 (localStorage 초기화 후에도 올바른 테마 복원)
+    const { theme: savedTheme } = loadSettings();
+
     mainWindow = new BrowserWindow({
         width: 1280,
         height: 800,
@@ -1062,6 +1077,7 @@ function createWindow() {
             preload: path.join(__dirname, "preload.js"),
             nodeIntegration: false,
             contextIsolation: true,
+            additionalArguments: [`--app-theme=${savedTheme}`],
         },
         icon: iconPath,
         title: "PTZ Controller",

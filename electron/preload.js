@@ -1,5 +1,23 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+// ── 테마 복원 ──────────────────────────────────────────────────
+// Electron은 매 시작마다 localStorage를 초기화하므로, main.js에서 넘겨받은
+// 저장된 테마를 페이지 JS 실행 전에 localStorage에 미리 주입한다.
+// 이렇게 하면 next-themes가 초기 hydration 시 올바른 테마를 읽어 flash가 없다.
+try {
+    const themeArg = process.argv.find((a) => a.startsWith("--app-theme="));
+    if (themeArg) {
+        const savedTheme = themeArg.split("=")[1];
+        // localStorage에 값이 없을 때만 주입한다.
+        // - 앱 최초 진입: clearStorageData 직후라 비어 있음 → 주입 ✓
+        // - 세션 내 페이지 리로드(로그아웃 등): 이미 현재 테마가 저장돼 있음 → 덮어쓰지 않음 ✓
+        if (savedTheme && !localStorage.getItem("theme")) {
+            localStorage.setItem("theme", savedTheme);
+        }
+    }
+} catch (_) {}
+// ──────────────────────────────────────────────────────────────
+
 // ─────────────────────────────────────────────────────────────
 // 렌더러 프로세스에 안전하게 API 노출 (contextBridge)
 //
