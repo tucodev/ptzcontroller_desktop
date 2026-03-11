@@ -1213,6 +1213,12 @@ async function checkLicenseOnStartup() {
 // IPC HANDLERS
 // ════════════════════════════════════════════════════════════════
 
+// 포트 유효성 검사 (1024~65535, 정수)
+function isValidPort(port) {
+    const p = Number(port);
+    return Number.isInteger(p) && p >= 1024 && p <= 65535;
+}
+
 ipcMain.handle("get-app-version", () => app.getVersion());
 ipcMain.on("minimize-window", () => mainWindow?.minimize());
 ipcMain.on("maximize-window", () => {
@@ -1224,7 +1230,7 @@ ipcMain.on("close-window", () => mainWindow?.hide());
 
 // ── Proxy Control IPC
 ipcMain.on("start-server", (_, port) => {
-    const proxyPort = port || loadSettings().proxyPort || 9902;
+    const proxyPort = isValidPort(port) ? Number(port) : (loadSettings().proxyPort || 9902);
     console.log(`[IPC] start-server: port=${proxyPort}`);
 
     if (startProxyServer(proxyPort)) {
@@ -1257,7 +1263,11 @@ ipcMain.on("stop-server", () => {
 
 ipcMain.on("change-port", (_, port) => {
     console.log(`[IPC] change-port: port=${port}`);
-    const updated = saveSettings({ proxyPort: port });
+    if (!isValidPort(port)) {
+        console.warn(`[IPC] change-port: 유효하지 않은 포트 ${port} — 무시됨 (1024~65535)`);
+        return;
+    }
+    const updated = saveSettings({ proxyPort: Number(port) });
     if (updated && mainWindow) {
         mainWindow.webContents.send("settings-changed", updated);
     }
