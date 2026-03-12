@@ -3,7 +3,7 @@
   "defaultOperationMode": "direct",
   "proxyPort": 9902,
   "logLevel": "info",
-  "theme": "system",
+  "theme": "light",
   "startToTray": false,
   "tokenAuth": false,
   "webAppUrl": ""

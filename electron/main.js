@@ -230,26 +230,32 @@ function getLicOsId() {
     return osId || `${platform}-${os.arch()}-${os.totalmem()}`;
 }
 
-/** sha256(osId + '||' + hwKey).slice(0,16).toUpperCase() — license.ts 동일 */
-function makeLicHwId(osId, hwKey) {
+// ── license.ts 와 동일한 상수 salt (OS에 종속되지 않음)
+// OS 재설치 시에도 동일 HW라면 동일 코드 → 라이선스 재발급 불필요
+const HW_SALT = "PTZ-CTRL-HW-2024";
+
+/** sha256(HW_SALT + '||' + hwKey).slice(0,16).toUpperCase() — license.ts makeHwId 동일 */
+function makeLicHwId(hwKey) {
     return crypto
         .createHash("sha256")
-        .update(osId + "||" + hwKey)
+        .update(HW_SALT + "||" + hwKey)
         .digest("hex")
         .slice(0, 16)
         .toUpperCase();
 }
 
 /**
- * 현재 PC의 MachineID 목록 동기 수집 (license.ts getAllMachineIds 동일 알고리즘)
- * 1) NIC MAC (platform별)  2) Windows NIC<2 → HDD serial  3) fallback
+ * 현재 PC의 MachineID 목록 동기 수집 (license.ts getAllMachineIds 완전 동일 알고리즘)
+ * 1단계) NIC MAC (플랫폼별, 비활성 포함)
+ * 2단계) HDD Serial (항상, 모든 플랫폼) — OS UUID salt 없이 HW_SALT 사용
+ * 3단계) NIC + HDD 모두 없을 때만 OS UUID (최후 수단)
  */
 function getAllMachineIdsSync() {
     const platform = process.platform;
-    const osId = getLicOsId();
     const macs = [];
     const ids = [];
 
+    // ── 1단계: NIC MAC 수집 ──────────────────────────────────────
     try {
         if (platform === "win32") {
             // Windows 8+: PowerShell Get-NetAdapter -Physical (비활성 포함)
@@ -261,7 +267,6 @@ function getAllMachineIdsSync() {
             );
             if (psOut) {
                 for (const line of psOut.split(/\r?\n/)) {
-                    // Get-NetAdapter returns XX-XX-XX-XX-XX-XX (dashes) → normalize to colons
                     const mac = line.trim().toLowerCase().replace(/-/g, ":");
                     if (/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(mac) && mac !== "00:00:00:00:00:00")
                         macs.push(mac);
@@ -316,30 +321,66 @@ function getAllMachineIdsSync() {
     }
 
     for (const mac of [...new Set(macs)]) {
-        ids.push(makeLicHwId(osId, mac));
+        ids.push(makeLicHwId(mac));
     }
 
-    // Windows: NIC 부족 시 HDD Volume Serial 보완 (license.ts 동일)
-    if (platform === "win32" && ids.length < 2) {
-        const wmicOut = safeSpawnLic("wmic", [
-            "logicaldisk", "get", "volumeserialnumber", "/format:table",
-        ]);
-        if (wmicOut) {
-            const serials = wmicOut.match(/[0-9A-Fa-f]{8}/g);
-            if (serials) {
-                for (const serial of [...new Set(serials)]) {
-                    ids.push(makeLicHwId(osId, serial));
+    // ── 2단계: HDD Serial 수집 (항상, 모든 플랫폼) ─────────────
+    // license.ts 와 동일: 조건 없이 항상 수집
+    try {
+        if (platform === "win32") {
+            // diskdrive: 물리 디스크 시리얼 (logicaldisk volume serial 아님)
+            const wmicOut = safeSpawnLic("wmic", [
+                "diskdrive", "get", "serialnumber", "/format:table",
+            ]);
+            if (wmicOut) {
+                for (const line of wmicOut.split(/\r?\n/)) {
+                    const serial = line.trim().replace(/\s+/g, "");
+                    if (serial && serial !== "SerialNumber" && serial.length > 2) {
+                        ids.push(makeLicHwId(serial));
+                    }
+                }
+            }
+        } else if (platform === "darwin") {
+            // system_profiler SPStorageDataType: SATA + NVMe 커버
+            const out = safeSpawnLic("system_profiler", ["SPStorageDataType"], 8000);
+            if (out) {
+                const matches = out.match(/Serial Number:\s*(\S+)/g);
+                if (matches) {
+                    for (const m of matches) {
+                        const serial = m.replace(/Serial Number:\s*/, "").trim();
+                        if (serial && serial.length > 2) ids.push(makeLicHwId(serial));
+                    }
+                }
+            }
+        } else {
+            // Linux: /sys/block/*/device/serial
+            const blockDir = "/sys/block";
+            if (fs.existsSync(blockDir)) {
+                for (const dev of fs.readdirSync(blockDir)) {
+                    if (dev.startsWith("loop") || dev.startsWith("ram") || dev.startsWith("zram"))
+                        continue;
+                    try {
+                        const serialPath = `${blockDir}/${dev}/device/serial`;
+                        if (fs.existsSync(serialPath)) {
+                            const serial = fs.readFileSync(serialPath, "utf8").trim();
+                            if (serial && serial.length > 2) ids.push(makeLicHwId(serial));
+                        }
+                    } catch (e) {}
                 }
             }
         }
+    } catch (e) {
+        console.warn("[LicHW] HDD 시리얼 수집 실패:", e.message);
     }
 
-    // fallback
+    console.log(`[LicHW] getAllMachineIdsSync: ${ids.length} IDs (${macs.length} NICs + HDD) on ${platform}`);
+
+    // ── 3단계: NIC + HDD 모두 없을 때만 OS UUID (최후 수단) ────
     if (ids.length === 0) {
-        ids.push(makeLicHwId(osId, "NO_HW_FALLBACK"));
+        console.warn("[LicHW] No hardware found – OS UUID를 최후 수단으로 사용");
+        ids.push(makeLicHwId(getLicOsId()));
     }
 
-    console.log(`[LicHW] getAllMachineIdsSync: ${ids.length} IDs on ${platform}`);
     return ids;
 }
 
@@ -373,7 +414,8 @@ function isLicenseValid(filePath) {
             return false;
         }
 
-        const { sig, ...payload } = lic;
+        // userOrg 는 서명 제외 메타데이터 — license.ts verifyLicense 동일 처리
+        const { sig, userOrg, ...payload } = lic;
 
         // ② HMAC-SHA256 서명 검증 (license.ts MASTER_SECRET 동일)
         const secret = process.env.LICENSE_SECRET || "TYCHE-PTZ-LICENSE-SECRET-2024";
@@ -1169,10 +1211,32 @@ function showFatalError(msg) {
 }
 
 /**
- * 시작 시 오프라인 라이선스 점검 (항목5)
- * - 라이선스가 없거나 만료된 경우 경고 다이얼로그 표시
- * - 온라인 모드에서는 무시 가능 ("계속" 선택)
- * - 오프라인 모드에서는 실제 접근 차단은 auth.ts에서 처리 (항목7)
+ * 오프라인 모드 쿠키 강제 삭제 (라이선스 무효 시 오프라인 진입 차단)
+ * - ptz-offline-mode  → 오프라인 세션 생성 트리거 쿠키
+ * - ptz-offline-userid → 오프라인 사용자 식별 쿠키
+ */
+async function clearOfflineCookies() {
+    try {
+        const ses = session.defaultSession;
+        const base = `http://localhost:${PORT}`;
+        await ses.cookies.remove(base, "ptz-offline-mode");
+        await ses.cookies.remove(base, "ptz-offline-userid");
+        console.log("[Desktop] ✅ Offline mode cookies cleared (license invalid)");
+    } catch (e) {
+        console.warn("[Desktop] Failed to clear offline cookies:", e.message);
+    }
+}
+
+/**
+ * 시작 시 오프라인 라이선스 점검
+ *
+ * 라이선스 유효 → 아무 조치 없음 (정상 동작)
+ * 라이선스 무효 →
+ *   1. ptz-offline-mode / ptz-offline-userid 쿠키 삭제
+ *      → requireSession() 이 오프라인 세션을 생성하지 않음 (보안 게이트)
+ *   2. 경고 다이얼로그:
+ *      "계속"   → 온라인 로그인 가능, 오프라인 불가
+ *      "앱 종료" → 즉시 종료
  */
 async function checkLicenseOnStartup() {
     const offlinePath = getLicenseFilePath(OFFLINE_LICENSE_FILE);
@@ -1189,6 +1253,9 @@ async function checkLicenseOnStartup() {
 
     console.warn("[Desktop] ⚠️ Startup license check: invalid —", reason);
 
+    // ── 오프라인 쿠키 즉시 삭제: requireSession 이 오프라인 세션을 반환하지 않도록
+    await clearOfflineCookies();
+
     try {
         const { response } = await dialog.showMessageBox({
             type: "warning",
@@ -1196,14 +1263,16 @@ async function checkLicenseOnStartup() {
             message: reason,
             detail:
                 "온라인 모드(인터넷 연결)에서는 이 경고를 무시하고 계속 사용할 수 있습니다.\n" +
-                "오프라인으로 사용하려면 설정 화면(⚙)에서 라이선스를 발급받으세요.",
-            buttons: ["계속", "앱 종료"],
+                "오프라인으로 사용하려면 설정 화면(⚙)에서 라이선스를 발급받으세요.\n\n" +
+                "※ 라이선스가 유효하지 않으면 오프라인 모드는 비활성화됩니다.",
+            buttons: ["계속 (온라인 전용)", "앱 종료"],
             defaultId: 0,
             cancelId: 1,
         });
         if (response === 1) {
             quitApp();
         }
+        // response === 0: 계속 → 온라인 로그인은 가능, 오프라인 세션은 쿠키 없어서 불가
     } catch (e) {
         console.warn("[Desktop] License startup dialog error:", e.message);
     }
