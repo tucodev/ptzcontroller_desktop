@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="_레이어_1" data-name="레이어 1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 23.62 16.5">
+  <defs>
+    <style>
+      .cls-1 {
+        clip-path: url(#clippath-6);
+      }
+
+      .cls-2 {
+        clip-path: url(#clippath-7);
+      }
+
+      .cls-3 {
+        clip-path: url(#clippath-4);
+      }
+
+      .cls-4 {
+        fill: red;
+      }
+
+      .cls-4, .cls-5 {
+        fill-rule: evenodd;
+      }
+
+      .cls-6 {
+        clip-path: url(#clippath-9);
+      }
+
+      .cls-7 {
+        clip-path: url(#clippath-10);
+      }
+
+      .cls-5 {
+        fill: #fff;
+      }
+
+      .cls-8 {
+        clip-path: url(#clippath-11);
+      }
+
+      .cls-9 {
+        clip-path: url(#clippath-1);
+      }
+
+      .cls-10 {
+        clip-path: url(#clippath-5);
+      }
+
+      .cls-11 {
+        clip-path: url(#clippath-8);
+      }
+
+      .cls-12 {
+        clip-path: url(#clippath-3);
+      }
+
+      .cls-13 {
+        clip-path: url(#clippath-12);
+      }
+
+      .cls-14 {
+        clip-rule: evenodd;
+        fill: none;
+      }
+
+      .cls-15 {
+        clip-path: url(#clippath-2);
+      }
+
+      .cls-16 {
+        clip-path: url(#clippath);
+      }
+    </style>
+    <clipPath id="clippath">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-1">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-2">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-3">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-4">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-5">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-6">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-7">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-8">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-9">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-10">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-11">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+    <clipPath id="clippath-12">
+      <polygon class="cls-14" points="0 16.5 23.62 16.5 23.62 0 0 0 0 16.5 0 16.5"/>
+    </clipPath>
+  </defs>
+  <g class="cls-16">
+    <path class="cls-5" d="M18.02,4.36c-.56-.68-.47-1.17-.22-1.54.18-.26.44-.47.98-.6.92-.17,2.24-.21,2.96.26.19.13.32.29.39.47.21.49.03,1.04-.43,1.41.68-.32.93-1.29.61-2.01-.11-.26-.3-.48-.52-.66-.8-.63-2.13-.64-3.04-.35-.59.19-1,.51-1.22.95-.32.61-.28,1.45.49,2.07h0Z"/>
+    <g class="cls-9">
+      <polygon class="cls-5" points="17.35 4.58 17.35 5.67 22.45 5.67 22.45 4.58 17.35 4.58 17.35 4.58 17.35 4.58"/>
+      <g class="cls-15">
+        <polygon class="cls-5" points="17.35 6.69 17.35 7.78 22.45 7.78 22.45 6.69 17.35 6.69 17.35 6.69 17.35 6.69"/>
+        <g class="cls-12">
+          <polygon class="cls-5" points="19.83 5.08 19.83 7.21 19.96 7.21 19.96 5.08 19.83 5.08 19.83 5.08 19.83 5.08"/>
+          <g class="cls-3">
+            <polygon class="cls-5" points="17.36 8.13 17.36 9.21 22.45 9.21 22.45 8.13 17.36 8.13 17.36 8.13 17.36 8.13"/>
+            <g class="cls-10">
+              <polygon class="cls-5" points="22.32 8.13 22.32 10.26 22.45 10.26 22.45 8.13 22.32 8.13 22.32 8.13 22.32 8.13"/>
+              <g class="cls-1">
+                <polygon class="cls-5" points="19.84 8.13 19.84 10.13 19.97 10.13 19.97 8.13 19.84 8.13 19.84 8.13 19.84 8.13"/>
+                <g class="cls-2">
+                  <polygon class="cls-5" points="17.36 8.13 17.36 10.26 17.49 10.26 17.49 8.13 17.36 8.13 17.36 8.13 17.36 8.13"/>
+                  <g class="cls-11">
+                    <polygon class="cls-4" points=".15 .15 23.48 .15 23.48 .47 .15 .47 .15 .15 .15 .15"/>
+                    <g class="cls-6">
+                      <path class="cls-4" d="M16.43,10.08l.05-.91V.87h-2.41s.02,8.77.02,8.77l-.26.36c0,3.05-2.16,5.25-4.19,6.37.7-.15,1.27-.27,1.82-.45,2.5-.83,4.52-3.02,4.96-5.84h0Z"/>
+                      <g class="cls-7">
+                        <path class="cls-4" d="M8.99,1.26c.8,1.01,2.27,1.06,3.01,0-.98.53-1.96.53-3.01,0h0Z"/>
+                        <g class="cls-8">
+                          <path class="cls-4" d="M7.74.88h-.18s.01,7.91.01,7.91c.01,1.41,1.72,2.55,3.83,2.55,2.06,0,3.72-1.14,3.71-2.52V.87s-1.03,0-1.03,0v7.63c.02,1.35-1.38,2.44-3.11,2.45-1.77,0-3.21-1.1-3.22-2.47V.88h0Z"/>
+                          <g class="cls-13">
+                            <path class="cls-4" d="M7.75.36h-.89l-2.8,9.56h4.29c-.39-.42-.6-.92-.6-1.44V.87s0-.03,0-.03v-.24s0-.24,0-.24h0Z"/>
+                          </g>
+                        </g>
+                      </g>
+                    </g>
+                  </g>
+                </g>
+              </g>
+            </g>
+          </g>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

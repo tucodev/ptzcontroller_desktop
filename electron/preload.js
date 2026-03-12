@@ -51,10 +51,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     // ── 개발 모드 확인 ────────────────────────────────────────
     isDev: process.env.NODE_ENV === "development",
 
-    // ── PTZ Proxy 서버 제어 (P-03 수정) ──────────────────────
-    // index.html 의 서버 시작/중지/포트변경 버튼용
-    startServer: (port) => ipcRenderer.send("start-server", port),
-    stopServer: () => ipcRenderer.send("stop-server"),
+    // ── 설정 ────────────────────────────────────────────────
     changePort: (port) => ipcRenderer.send("change-port", port),
     requestStatus: () => ipcRenderer.send("request-status"),
     saveSettings: (s) => ipcRenderer.send("save-settings", s),

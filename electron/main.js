@@ -1,12 +1,7 @@
-// # P-33: PTZ Proxy 서버 기능 구현
-
-// ## 📍 파일 경로 및 수정 사항
-
-// ### 1. electron/main.js - PTZ Proxy WebSocket 서버 추가
-
-// **파일 경로:** `ptzcontroller_desktop/electron/main.js`
-
-// **추가할 코드 (전체 파일):**
+// electron/main.js — PTZ Controller Desktop (Electron)
+//
+// PTZ Proxy 서버는 별도 프로세스(ptz-proxy-electron)로 실행.
+// Desktop 앱은 Proxy에 WebSocket 클라이언트로 접속한다.
 
 "use strict";
 
@@ -25,7 +20,6 @@ const path = require("path");
 const fs = require("fs");
 const cp = require("child_process");
 const http = require("http");
-const WebSocket = require("ws");
 const crypto = require("crypto");
 
 // ════════════════════════════════════════════════════════════════
@@ -868,223 +862,6 @@ let nextProcess = null;
 let serverReady = false;
 let appQuitting = false;
 
-let proxyServer = null;
-let proxyWss = null;
-let proxyClients = new Set();
-let proxyConnections = new Map();
-let proxyRunning = false;
-
-// ════════════════════════════════════════════════════════════════
-// PTZ PROXY SERVER
-// ════════════════════════════════════════════════════════════════
-
-function startProxyServer(port) {
-    if (proxyRunning) {
-        console.warn("[Proxy] Server already running");
-        return false;
-    }
-
-    try {
-        proxyServer = http.createServer();
-        proxyWss = new WebSocket.Server({ server: proxyServer });
-
-        proxyWss.on("connection", (ws, req) => {
-            const clientId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            proxyClients.add(clientId);
-            proxyConnections.set(clientId, {
-                ws,
-                ptzDevice: null,
-                status: "connected",
-                protocol: null,
-                connectedAt: new Date(),
-            });
-
-            console.log(
-                `[Proxy] Client connected: ${clientId} (total: ${proxyClients.size})`,
-            );
-
-            updateProxyStatus();
-
-            ws.on("message", (message) => {
-                handleProxyMessage(clientId, message);
-            });
-
-            ws.on("close", () => {
-                proxyClients.delete(clientId);
-                proxyConnections.delete(clientId);
-                console.log(
-                    `[Proxy] Client disconnected: ${clientId} (remaining: ${proxyClients.size})`,
-                );
-                updateProxyStatus();
-            });
-
-            ws.on("error", (error) => {
-                console.error(
-                    `[Proxy] WebSocket error (${clientId}):`,
-                    error.message,
-                );
-            });
-        });
-
-        proxyServer.listen(port, "0.0.0.0", () => {
-            proxyRunning = true;
-            console.log(
-                `[Proxy] WebSocket server started: ws://0.0.0.0:${port}`,
-            );
-            updateProxyStatus();
-        });
-
-        proxyServer.on("error", (err) => {
-            console.error("[Proxy] Server error:", err.message);
-            proxyRunning = false;
-            if (mainWindow) {
-                mainWindow.webContents.send("proxy-error", {
-                    message: `Port ${port} binding failed: ${err.message}`,
-                });
-            }
-        });
-
-        return true;
-    } catch (err) {
-        console.error("[Proxy] Start failed:", err.message);
-        proxyRunning = false;
-        return false;
-    }
-}
-
-function handleProxyMessage(clientId, message) {
-    try {
-        const conn = proxyConnections.get(clientId);
-        if (!conn) return;
-
-        const data = JSON.parse(message);
-
-        switch (data.type) {
-            case "init":
-                conn.protocol = data.protocol || "pelcod";
-                conn.ptzDevice = data.device || null;
-                conn.status = "authenticated";
-                console.log(
-                    `[Proxy] Client initialized: ${clientId} (${conn.protocol})`,
-                );
-                conn.ws.send(
-                    JSON.stringify({
-                        type: "init-ack",
-                        clientId,
-                        status: "ok",
-                    }),
-                );
-                updateProxyStatus();
-                break;
-
-            case "command":
-                handlePTZCommand(clientId, data);
-                break;
-
-            case "ping":
-                conn.ws.send(
-                    JSON.stringify({
-                        type: "pong",
-                        timestamp: Date.now(),
-                    }),
-                );
-                break;
-
-            default:
-                console.warn(`[Proxy] Unknown message type: ${data.type}`);
-        }
-    } catch (err) {
-        console.error("[Proxy] Message handling error:", err.message);
-    }
-}
-
-function handlePTZCommand(clientId, data) {
-    const conn = proxyConnections.get(clientId);
-    if (!conn) return;
-
-    const { command, params } = data;
-    console.log(`[Proxy] Command: ${clientId} -> ${command}`, params);
-
-    const response = {
-        type: "command-ack",
-        commandId: data.commandId || null,
-        command,
-        status: "executed",
-        result: { success: true },
-    };
-
-    conn.ws.send(JSON.stringify(response));
-    broadcastProxyStatus();
-}
-
-function updateProxyStatus() {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-        const status = {
-            running: proxyRunning,
-            port: loadSettings().proxyPort,
-            clients: proxyClients.size,
-            connections: proxyConnections.size,
-            settings: loadSettings(),
-        };
-        mainWindow.webContents.send("status", status);
-    }
-}
-
-function broadcastProxyStatus() {
-    const statusMsg = {
-        type: "proxy-status",
-        clients: proxyClients.size,
-        connections: proxyConnections.size,
-        timestamp: Date.now(),
-    };
-    for (const [, conn] of proxyConnections) {
-        if (conn.ws && conn.ws.readyState === WebSocket.OPEN) {
-            try {
-                conn.ws.send(JSON.stringify(statusMsg));
-            } catch (err) {
-                console.warn("[Proxy] Broadcast failed:", err.message);
-            }
-        }
-    }
-}
-
-function stopProxyServer() {
-    if (!proxyRunning) {
-        console.warn("[Proxy] Server not running");
-        return false;
-    }
-
-    try {
-        for (const [clientId, conn] of proxyConnections) {
-            if (conn.ws) {
-                conn.ws.close(1000, "Server shutdown");
-            }
-        }
-        proxyConnections.clear();
-        proxyClients.clear();
-
-        if (proxyWss) {
-            proxyWss.close(() => {
-                console.log("[Proxy] WebSocket server closed");
-            });
-        }
-
-        if (proxyServer) {
-            proxyServer.close(() => {
-                console.log("[Proxy] HTTP server closed");
-            });
-        }
-
-        proxyRunning = false;
-        proxyServer = null;
-        proxyWss = null;
-        updateProxyStatus();
-        return true;
-    } catch (err) {
-        console.error("[Proxy] Stop failed:", err.message);
-        return false;
-    }
-}
 
 // ════════════════════════════════════════════════════════════════
 // WINDOW MANAGEMENT
@@ -1111,7 +888,7 @@ function createWindow() {
 
     mainWindow = new BrowserWindow({
         width: 1280,
-        height: 800,
+        height: 890,
         minWidth: 900,
         minHeight: 600,
         backgroundColor: "#0f172a",
@@ -1297,38 +1074,6 @@ ipcMain.on("maximize-window", () => {
 ipcMain.on("hide-window", () => mainWindow?.hide());
 ipcMain.on("close-window", () => mainWindow?.hide());
 
-// ── Proxy Control IPC
-ipcMain.on("start-server", (_, port) => {
-    const proxyPort = isValidPort(port) ? Number(port) : (loadSettings().proxyPort || 9902);
-    console.log(`[IPC] start-server: port=${proxyPort}`);
-
-    if (startProxyServer(proxyPort)) {
-        console.log(`[Proxy] Started: ws://0.0.0.0:${proxyPort}`);
-        updateProxyStatus();
-    } else {
-        console.error(`[Proxy] Start failed`);
-        if (mainWindow) {
-            mainWindow.webContents.send("status", {
-                running: false,
-                port: proxyPort,
-                clients: 0,
-                connections: 0,
-                settings: loadSettings(),
-            });
-        }
-    }
-});
-
-ipcMain.on("stop-server", () => {
-    console.log("[IPC] stop-server");
-
-    if (stopProxyServer()) {
-        console.log("[Proxy] Stopped");
-        updateProxyStatus();
-    } else {
-        console.error("[Proxy] Stop failed");
-    }
-});
 
 ipcMain.on("change-port", (_, port) => {
     console.log(`[IPC] change-port: port=${port}`);
@@ -1354,10 +1099,10 @@ ipcMain.on("request-status", () => {
     if (mainWindow) {
         const settings = loadSettings();
         mainWindow.webContents.send("status", {
-            running: proxyRunning,
+            running: false,
             port: settings.proxyPort,
-            clients: proxyClients.size,
-            connections: proxyConnections.size,
+            clients: 0,
+            connections: 0,
             settings,
         });
     }
@@ -1517,9 +1262,6 @@ app.on("window-all-closed", (e) => e.preventDefault());
 
 app.on("before-quit", () => {
     appQuitting = true;
-    if (proxyRunning) {
-        stopProxyServer();
-    }
     killNextProcess();
 });
 
