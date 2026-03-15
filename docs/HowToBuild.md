@@ -80,9 +80,6 @@ SMTP_PORT=587
 SMTP_SECURE=false
 SMTP_USER=cumtyche@gmail.com
 SMTP_PASSWORD=wbjnrgeyonwftrvi
-# app 에 따라 수정
-#APP_URL=http://localhost:3000
-#or
 APP_URL=http://localhost:3000
 
 # sms 정보
