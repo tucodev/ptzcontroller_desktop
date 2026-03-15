@@ -1,5 +1,98 @@
 # 빌드하기
 
+## 기본 사항
+
+---
+
+## neon 접속 정보: github로 tucodev@gmail.com
+
+```
+# PTZ Controller Desktop — 환경변수 설정 파일
+#
+# 사용법:
+# 1. 이 파일을 .env-in-standalone 이름으로 복사 (또는 standalone/.env 로 직접 복사)
+# 2. 아래 항목들을 실제 값으로 채워 넣으세요
+# 3. .env-in-standalone / standalone/.env 는 절대 Git에 커밋하지 마세요
+#
+# copy:standalone 실행 시 ptzcontroller_admin/.env 를 자동으로 standalone/.env 로 복사합니다.
+# 이 파일은 개발자 참조용 템플릿입니다.
+
+# Port (admin Server)
+#PORT=3000
+# Port (license Server)
+PORT=4000
+
+# ── SQLite 백업 모드 (DB_TYPE=neon 일 때만 유효) ─────────────
+# ptzcontroller_desktop, license_server, ptz_proxy 에서는 의미 없음
+#
+# on : Neon 저장 + SQLite에도 동기화 (이중 저장)
+# off : Neon에만 저장 (기본값)
+# DB_TYPE=sqlite 이면 이 값은 무시됨 (SQLite가 유일한 저장소)
+STORAGE_MODE=off
+
+# ── DB 선택 ───────────────────────────────────────────────────
+# ptzcontroller_desktop, license_server, ptz_proxy 에서는 의미 없음
+
+#
+# sqlite : 로컬/온프레미스 (기본값, data/license.db 파일 생성)
+# neon : 클라우드 (DATABASE_URL 필수)
+# 버그 수정: 기존 파일에 주석 없는 "or" 라인이 있어 dotenv 파싱 오류 발생
+# → 두 줄 모두 주석 처리, 사용할 것만 주석 해제
+#DB_TYPE=sqlite
+# or
+DB_TYPE=neon
+
+# ── 데이터베이스 (필수) ───────────────────────────────────────
+# PostgreSQL 접속 URL (NeonDB, Supabase, 로컬 PG 등)
+DATABASE_URL="postgresql://neondb_owner:npg_cP1qQeFoMkO3@ep-patient-waterfall-a1tk4pzw-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+
+# ── NextAuth (필수) ───────────────────────────────────────────
+# 충분히 길고 랜덤한 문자열 (openssl rand -base64 32)
+NEXTAUTH_SECRET="wdaa3EIyANLmrkF4ENZ6WRs8HDD0zQUJ"
+# Electron 내장 서버는 반드시 http (https 사용 시 로그인 실패)
+NEXTAUTH_URL="http://localhost:3000"
+
+# ── 라이선스 (선택) ───────────────────────────────────────────
+# 오프라인 라이선스 서명에 사용하는 시크릿
+LICENSE_SECRET="TYCHE-PTZ-GOOD-BLESS-2026"
+# 온라인 라이선스 발급 서버 URL (없으면 오프라인 모드만 동작)
+LICENSE_SERVER_URL="http://localhost:4000"
+# 관리자 대시보드 비밀번호 (Basic Auth)
+JWT_SECRET=IMGOINGTOGOODHEAVENHELLOTYCHE23
+JWT_EXPIRES=8h
+
+# ── 초기 superadmin 계정 시드 ────────────────────────────────
+# admins 테이블이 비어 있을 때 최초 1회만 생성
+# 서버 실행 후 대시보드에서 비밀번호 변경 후 아래 항목 제거 권장
+INIT_ADMIN_USERNAME=admin
+INIT_ADMIN_PASSWORD=hellotyche!
+
+# P-48 추가: 이메일 설정 (SMTP)
+#
+# 1. Google 계정 → 보안 → 앱 비밀번호
+# 2. 앱 선택: Mail
+# 3. 기기 선택: Windows PC (또는 해당 OS)
+# 4. 생성된 16자리 비밀번호를 SMTP_PASSWORD에 입력
+#
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=cumtyche@gmail.com
+SMTP_PASSWORD=wbjnrgeyonwftrvi
+# app 에 따라 수정
+#APP_URL=http://localhost:3000
+#or
+APP_URL=http://localhost:3000
+
+# sms 정보
+ALIGO_API_KEY=ave4ls1tcjg1m3gpeybp2mnw07zemjmr
+ALIGO_USER_ID=tuco
+ALIGO_SENDER=01094832363
+```
+
+---
+
 ## 빌드 순서 (총정리)
 
 ---
